@@ -343,42 +343,6 @@ def search_line_items(
         print(f"Fetching financial data for {ticker} from {VNSTOCK_SOURCE}")
         stock = _vnstock.stock(symbol=ticker, source=VNSTOCK_SOURCE)
         
-        # Map common line items to their vnstock field names
-        field_mapping = {
-            # Income Statement
-            "revenue": "net_revenue",
-            "net_income": "profit_after_tax",
-            "earnings_per_share": "basic_earnings_per_share",
-            "operating_income": "operating_profit",
-            "gross_profit": "gross_profit",
-            "interest_income": "interest_income",
-            "interest_expense": "interest_expense",
-            "pretax_income": "profit_before_tax",
-            "income_tax": "corporate_income_tax",
-            
-            # Balance Sheet
-            "total_assets": "total_assets",
-            "total_liabilities": "total_liabilities",
-            "shareholders_equity": "owner_equity",
-            "cash_and_equivalents": "cash",
-            "current_assets": "current_assets",
-            "current_liabilities": "current_liabilities",
-            "accounts_receivable": "short_term_receivable",
-            "inventory": "inventory",
-            "long_term_investments": "long_term_investment",
-            "fixed_assets": "fixed_assets",
-            "intangible_assets": "intangible_assets",
-            "short_term_debt": "short_term_debt",
-            "long_term_debt": "long_term_debt",
-            
-            # Cash Flow
-            "operating_cash_flow": "net_cash_from_operating_activities",
-            "investing_cash_flow": "net_cash_from_investing_activities",
-            "financing_cash_flow": "net_cash_from_financing_activities",
-            "capital_expenditure": "capital_expenditure",
-            "depreciation_and_amortization": "depreciation"
-        }
-        
         # Get balance sheet data
         print(f"Fetching balance sheet data...")
         balance_sheet = stock.finance.balance_sheet(period=period, lang='en', dropna=True)
@@ -393,6 +357,68 @@ def search_line_items(
         print(f"Fetching cash flow data...")
         cash_flow = stock.finance.cash_flow(period=period, dropna=True)
         print(f"Cash flow data shape: {cash_flow.shape if not cash_flow.empty else '(empty)'}")
+        
+        # Get company overview for share data
+        print(f"Fetching company overview...")
+        overview = stock.company.overview()
+        outstanding_shares = overview.get('outstanding_share', 0) * 1000000  # Convert from millions to actual shares
+        
+        # Get dividend data if needed
+        dividend_data = None
+        if "dividends_and_other_cash_distributions" in line_items:
+            try:
+                print(f"Fetching dividend data...")
+                dividend_df = stock.company.dividends()
+                if not dividend_df.empty:
+                    # Convert exercise_date to datetime
+                    dividend_df['exercise_date'] = pd.to_datetime(dividend_df['exercise_date'], format='%d/%m/%y')
+                    # Convert percentage to decimal and handle cash vs share dividends
+                    dividend_df['cash_value'] = dividend_df.apply(
+                        lambda row: float(row['cash_dividend_percentage']) if row['issue_method'] == 'cash' else 0, 
+                        axis=1
+                    )
+                    # Group by year and sum cash dividends
+                    dividend_data = dividend_df.groupby(dividend_df['exercise_date'].dt.year)['cash_value'].sum()
+                    print(f"Found dividend data for years: {dividend_data.index.tolist()}")
+            except Exception as e:
+                print(f"Error fetching dividend data: {str(e)}")
+        
+        # Map common line items to their vnstock field names
+        field_mapping = {
+            # Balance Sheet
+            "current_assets": "current_assets",
+            "current_liabilities": "current_liabilities",
+            "total_assets": "asset",
+            "total_liabilities": "debt",
+            "shareholders_equity": "equity",
+            "cash_and_equivalents": "cash",
+            "accounts_receivable": "short_receivable",
+            "inventory": "inventory",
+            "long_term_investments": "long_invest",
+            "fixed_assets": "fixed_asset",
+            "intangible_assets": "intangible_asset",
+            "short_term_debt": "short_debt",
+            "long_term_debt": "long_debt",
+            
+            # Income Statement
+            "revenue": "net_revenue",
+            "net_income": "profit_after_tax",
+            "earnings_per_share": "basic_earnings_per_share",
+            "operating_income": "operating_profit",
+            "gross_profit": "gross_profit",
+            "interest_income": "interest_income",
+            "interest_expense": "interest_expense",
+            "pretax_income": "profit_before_tax",
+            "income_tax": "corporate_income_tax",
+            
+            # Cash Flow
+            "operating_cash_flow": "from_sale",
+            "investing_cash_flow": "from_invest",
+            "financing_cash_flow": "from_financial",
+            "capital_expenditure": "invest_cost",
+            "depreciation_and_amortization": "depreciation",
+            "dividends_and_other_cash_distributions": None  # Will get from dividend data
+        }
         
         # Combine all statements into one DataFrame
         combined_data = pd.DataFrame()
@@ -433,7 +459,8 @@ def search_line_items(
                 "ticker": ticker,
                 "report_period": idx.strftime('%Y-%m-%d'),
                 "period": period,
-                "currency": "VND"
+                "currency": "VND",
+                "outstanding_shares": outstanding_shares
             }
             
             # Add requested line items if available
@@ -441,15 +468,27 @@ def search_line_items(
                 if item in field_mapping:
                     # Direct mapping available
                     field = field_mapping[item]
-                    value = _safe_get(row, field)
-                    line_item_data[item] = value
+                    if field is not None:
+                        value = _safe_get(row, field)
+                        if value is not None:
+                            # Convert to millions for consistency
+                            line_item_data[item] = value * 1000000
+                    elif item == "dividends_and_other_cash_distributions" and dividend_data is not None:
+                        # Get dividend value for this year
+                        year = idx.year
+                        if year in dividend_data.index:
+                            # Convert dividend percentage to actual value based on outstanding shares
+                            dividend_pct = dividend_data[year]
+                            line_item_data[item] = -(dividend_pct * outstanding_shares)
+                        else:
+                            line_item_data[item] = 0
                 else:
                     # Calculate derived fields
                     if item == "free_cash_flow":
-                        operating_cf = _safe_get(row, "net_cash_from_operating_activities")
-                        capex = _safe_get(row, "capital_expenditure")
+                        operating_cf = _safe_get(row, "from_sale")
+                        capex = _safe_get(row, "invest_cost")
                         if operating_cf is not None and capex is not None:
-                            line_item_data[item] = operating_cf - capex
+                            line_item_data[item] = (operating_cf - capex) * 1000000
                     elif item == "operating_margin":
                         revenue = _safe_get(row, "net_revenue")
                         operating_profit = _safe_get(row, "operating_profit")
@@ -463,27 +502,31 @@ def search_line_items(
                     elif item == "ebit":
                         operating_profit = _safe_get(row, "operating_profit")
                         if operating_profit is not None:
-                            line_item_data[item] = operating_profit
+                            line_item_data[item] = operating_profit * 1000000
                     elif item == "ebitda":
                         operating_profit = _safe_get(row, "operating_profit")
                         depreciation = _safe_get(row, "depreciation")
                         if operating_profit is not None:
-                            line_item_data[item] = operating_profit + (depreciation or 0)
+                            line_item_data[item] = (operating_profit + (depreciation or 0)) * 1000000
                     elif item == "working_capital":
                         current_assets = _safe_get(row, "current_assets")
                         current_liabilities = _safe_get(row, "current_liabilities")
                         if current_assets is not None and current_liabilities is not None:
-                            line_item_data[item] = current_assets - current_liabilities
+                            line_item_data[item] = (current_assets - current_liabilities) * 1000000
                     elif item == "total_debt":
-                        short_term = _safe_get(row, "short_term_debt")
-                        long_term = _safe_get(row, "long_term_debt")
+                        short_term = _safe_get(row, "short_debt")
+                        long_term = _safe_get(row, "long_debt")
                         if short_term is not None or long_term is not None:
-                            line_item_data[item] = (short_term or 0) + (long_term or 0)
+                            line_item_data[item] = ((short_term or 0) + (long_term or 0)) * 1000000
                     elif item == "net_debt":
                         total_debt = line_item_data.get("total_debt")
                         cash = _safe_get(row, "cash")
                         if total_debt is not None and cash is not None:
-                            line_item_data[item] = total_debt - cash
+                            line_item_data[item] = total_debt - (cash * 1000000)
+                    elif item == "book_value_per_share":
+                        equity = _safe_get(row, "equity")
+                        if equity is not None and outstanding_shares > 0:
+                            line_item_data[item] = (equity * 1000000) / outstanding_shares
             
             # Create LineItem object
             try:
@@ -495,6 +538,7 @@ def search_line_items(
                 continue
         
         print(f"Created {len(result_items)} LineItem objects")
+        print(f"Return data: {result_items}")
         return result_items
         
     except Exception as e:

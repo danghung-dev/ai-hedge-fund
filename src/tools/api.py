@@ -16,13 +16,15 @@ from data.models import (
     InsiderTrade,
     InsiderTradeResponse,
 )
+from utils.env import get_env_bool
 
 # Import both API implementations
 from . import vnstock_api
 from . import financialdatasets_api
 
 # Determine which API to use based on environment variable
-USE_VNSTOCK = os.environ.get('USE_VNSTOCK', 'true').lower() == 'true'
+USE_VNSTOCK = get_env_bool('USE_VNSTOCK', default=True)
+print(f"Using {'vnstock' if USE_VNSTOCK else 'financialdatasets'} API")
 
 # Select the appropriate API implementation
 _api = vnstock_api if USE_VNSTOCK else financialdatasets_api

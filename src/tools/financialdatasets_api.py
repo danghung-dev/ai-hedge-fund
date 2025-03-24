@@ -115,6 +115,8 @@ def search_line_items(
     if not search_results:
         return []
 
+    # print return data :limit
+    print(f"Return data: {search_results[:limit]}")
     return search_results[:limit]
 
 def get_insider_trades(
