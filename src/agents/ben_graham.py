@@ -9,6 +9,8 @@ from typing_extensions import Literal
 from utils.progress import progress
 from utils.llm import call_llm
 import math
+import os
+import pandas as pd
 
 
 class BenGrahamSignal(BaseModel):
@@ -31,13 +33,16 @@ def ben_graham_agent(state: AgentState):
 
     analysis_data = {}
     graham_analysis = {}
-
+    USE_VNSTOCK = os.environ.get('USE_VNSTOCK', 'true').lower() == 'true'
     for ticker in tickers:
         progress.update_status("ben_graham_agent", ticker, "Fetching financial metrics")
         metrics = get_financial_metrics(ticker, end_date, period="annual", limit=10)
 
         progress.update_status("ben_graham_agent", ticker, "Gathering financial line items")
-        financial_line_items = search_line_items(ticker, ["earnings_per_share", "revenue", "net_income", "book_value_per_share", "total_assets", "total_liabilities", "current_assets", "current_liabilities", "dividends_and_other_cash_distributions", "outstanding_shares"], end_date, period="annual", limit=10)
+        period = "quarter" if USE_VNSTOCK else "annual"
+        financial_line_items = search_line_items(ticker, ["earnings_per_share", "revenue", "net_income", "book_value_per_share", "total_assets", 
+                                                          "total_liabilities", "current_assets", "current_liabilities", "dividends_and_other_cash_distributions", "outstanding_shares"], 
+                                                          end_date, period=period, limit=10)
 
         progress.update_status("ben_graham_agent", ticker, "Getting market cap")
         market_cap = get_market_cap(ticker, end_date)
@@ -101,36 +106,79 @@ def analyze_earnings_stability(metrics: list, financial_line_items: list) -> dic
     score = 0
     details = []
 
-    if not metrics or not financial_line_items:
-        return {"score": score, "details": "Insufficient data for earnings stability analysis"}
+    # Check for empty or None inputs
+    if isinstance(metrics, pd.DataFrame):
+        if metrics.empty:
+            print("Metrics DataFrame is empty")
+            return {"score": 0, "details": "No financial metrics data available"}
+    elif not metrics:
+        print("No metrics data provided")
+        return {"score": 0, "details": "No financial metrics data provided"}
 
+    if not financial_line_items:
+        print("No financial line items provided")
+        return {"score": 0, "details": "No financial line items data available"}
+
+    # Debug log
+    print(f"Processing {len(financial_line_items)} financial line items")
+    
+    # Check if all values are None
+    all_none = all(
+        all(getattr(item, attr) is None for attr in ['earnings_per_share', 'revenue', 'net_income'])
+        for item in financial_line_items
+    )
+    
+    if all_none:
+        print("All financial line items have None values")
+        return {"score": 0, "details": "No valid financial data available - all values are None"}
+
+    # Extract EPS values, handling potential None values
     eps_vals = []
     for item in financial_line_items:
-        if item.earnings_per_share is not None:
-            eps_vals.append(item.earnings_per_share)
+        if hasattr(item, 'earnings_per_share') and item.earnings_per_share is not None:
+            try:
+                eps = float(item.earnings_per_share)
+                if math.isfinite(eps):  # Check for valid finite number
+                    eps_vals.append(eps)
+                else:
+                    print(f"Skipping non-finite EPS value: {eps}")
+            except (ValueError, TypeError) as e:
+                print(f"Error converting EPS value: {e}")
+                continue
 
+    print(f"Found {len(eps_vals)} valid EPS values")
+    
     if len(eps_vals) < 2:
-        details.append("Not enough multi-year EPS data.")
-        return {"score": score, "details": "; ".join(details)}
+        return {"score": 0, "details": "Insufficient valid EPS data points for stability analysis"}
 
-    # 1. Consistently positive EPS
-    positive_eps_years = sum(1 for e in eps_vals if e > 0)
-    total_eps_years = len(eps_vals)
-    if positive_eps_years == total_eps_years:
-        score += 3
-        details.append("EPS was positive in all available periods.")
-    elif positive_eps_years >= (total_eps_years * 0.8):
-        score += 2
-        details.append("EPS was positive in most periods.")
-    else:
-        details.append("EPS was negative in multiple periods.")
+    try:
+        # 1. Consistently positive EPS
+        positive_eps_years = sum(1 for e in eps_vals if e > 0)
+        total_eps_years = len(eps_vals)
+        
+        if positive_eps_years == total_eps_years:
+            score += 3
+            details.append(f"EPS was positive in all {total_eps_years} available periods")
+        elif positive_eps_years >= (total_eps_years * 0.8):
+            score += 2
+            details.append(f"EPS was positive in {positive_eps_years} out of {total_eps_years} periods")
+        else:
+            details.append(f"EPS was negative in {total_eps_years - positive_eps_years} out of {total_eps_years} periods")
 
-    # 2. EPS growth from earliest to latest
-    if eps_vals[-1] > eps_vals[0]:
-        score += 1
-        details.append("EPS grew from earliest to latest period.")
-    else:
-        details.append("EPS did not grow from earliest to latest period.")
+        # 2. EPS growth from earliest to latest
+        if eps_vals[0] != 0 and eps_vals[-1] != 0:  # Avoid division by zero
+            growth_rate = (eps_vals[0] - eps_vals[-1]) / abs(eps_vals[-1])
+            if growth_rate > 0:
+                score += 1
+                details.append(f"EPS grew by {growth_rate:.1%} from earliest to latest period")
+            else:
+                details.append(f"EPS declined by {abs(growth_rate):.1%} from earliest to latest period")
+        else:
+            details.append("Cannot calculate EPS growth rate due to zero values")
+            
+    except Exception as e:
+        print(f"Error in earnings stability analysis: {str(e)}")
+        return {"score": 0, "details": f"Error analyzing earnings stability: {str(e)}"}
 
     return {"score": score, "details": "; ".join(details)}
 
