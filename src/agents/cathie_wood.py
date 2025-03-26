@@ -136,7 +136,7 @@ def analyze_disruptive_potential(metrics: list, financial_line_items: list) -> d
     score = 0
     details = []
 
-    if not metrics or not financial_line_items:
+    if metrics is None or financial_line_items is None:
         return {
             "score": 0,
             "details": "Insufficient data to analyze disruptive potential"
@@ -247,7 +247,7 @@ def analyze_innovation_growth(metrics: list, financial_line_items: list) -> dict
     score = 0
     details = []
 
-    if not metrics or not financial_line_items:
+    if metrics is None or financial_line_items is None:
         return {
             "score": 0,
             "details": "Insufficient data to analyze innovation-driven growth"

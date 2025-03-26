@@ -136,7 +136,8 @@ def warren_buffett_agent(state: AgentState):
 
 def analyze_fundamentals(metrics: list) -> dict[str, any]:
     """Analyze company fundamentals based on Buffett's criteria."""
-    if not metrics:
+    # if not metrics:
+    if metrics is None or len(metrics) == 0:
         return {"score": 0, "details": "Insufficient fundamental data"}
 
     latest_metrics = metrics[0]
@@ -222,7 +223,7 @@ def analyze_moat(metrics: list) -> dict[str, any]:
     For simplicity, we look at stability of ROE/operating margins over multiple periods
     or high margin over the last few years. Higher stability => higher moat score.
     """
-    if not metrics or len(metrics) < 3:
+    if metrics is None or len(metrics) < 3:
         return {"score": 0, "max_score": 3, "details": "Insufficient data for moat analysis"}
 
     reasoning = []

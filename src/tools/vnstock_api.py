@@ -30,6 +30,11 @@ def get_prices(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
             interval='1D'
         )
         
+        # Check if the dataframe is empty or None
+        if df is None or df.empty:
+            print(f"No price data found for {ticker} between {start_date} and {end_date}")
+            return pd.DataFrame()
+        
         # Rename columns to match our schema
         df = df.rename(columns={
             'time': 'Date',
@@ -50,10 +55,18 @@ def get_prices(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
             df[col] = pd.to_numeric(df[col], errors='coerce')
             
         df.sort_index(inplace=True)
+        print(f"Price data for {ticker} shape: {df.shape}")
+        print(f"Price data for {ticker} columns: {df.columns}")
+        
+        # Show full price data
+        with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
+            print(f"Full price data for {ticker}:\n{df}")
+            
         return df
         
     except Exception as e:
-        raise Exception(f"Error fetching price data for {ticker}: {str(e)}")
+        print(f"Error fetching price data for {ticker}: {str(e)}")
+        return pd.DataFrame()
 
 def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limit: int = 10) -> pd.DataFrame:
     """
@@ -69,6 +82,10 @@ def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limi
         pd.DataFrame: DataFrame containing financial metrics
     """
     try:
+        # if period is not year or quarter, set it to year
+        if period not in ['year', 'quarter']:
+            period = 'year'
+            
         print(f'Getting financial metrics for {ticker} from {VNSTOCK_SOURCE}')
         stock = _vnstock.stock(symbol=ticker, source=VNSTOCK_SOURCE)
         
@@ -81,21 +98,153 @@ def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limi
             print(f'No financial ratios data available for {ticker}')
             return pd.DataFrame()
             
-        # Get additional metrics from income statement for revenue growth
+        # Get income statement for additional metrics
         try:
             income_stmt = stock.finance.income_statement(period=period, lang='en', dropna=True)
+            print(f"Income statement header: {income_stmt.columns}")
+            
             if not income_stmt.empty:
-                df['net_revenue'] = income_stmt['net_revenue']
-                # Calculate revenue growth
-                df['revenue_growth'] = df['net_revenue'].pct_change(-1)  # Previous period growth
+                # Using pd.option_context to show complete data
+                with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
+                    print(f"Income statement data:\n{income_stmt.head().to_string()}")
+                
+                # Map income statement metrics to our model fields
+                # Updated based on the guide and our search_line_items function
+                income_mapping = {
+                    'revenue': 'revenue', 
+                    'share_holder_income': 'net_income',  # Updated based on guide
+                    'operation_profit': 'operating_income',
+                    'gross_profit': 'gross_profit',
+                    'year_revenue_growth': 'revenue_growth',
+                    'year_operation_profit_growth': 'operating_income_growth',
+                    'year_share_holder_income_growth': 'earnings_growth',  # Updated based on guide
+                    'ebitda': 'ebitda'
+                }
+                
+                # Add income statement metrics to df
+                for income_col, metric_field in income_mapping.items():
+                    if income_col in income_stmt.columns and metric_field:
+                        df[metric_field] = income_stmt[income_col]
+                
+                # Calculate operating margin as (operation_profit / revenue) * 100
+                if 'operation_profit' in income_stmt.columns and 'revenue' in income_stmt.columns:
+                    df['operating_margin'] = (income_stmt['operation_profit'] / income_stmt['revenue']) * 100
+                    print(f"Calculated operating_margin for {ticker}")
+                
+                # Calculate depreciation_and_amortization
+                if 'ebitda' in income_stmt.columns and 'operation_profit' in income_stmt.columns:
+                    df['depreciation_and_amortization'] = income_stmt['ebitda'] - income_stmt['operation_profit']
+                    print(f"Calculated depreciation_and_amortization for {ticker}")
         except Exception as e:
             print(f'Error fetching income statement data: {str(e)}')
             
-        # Get market cap from company overview
+        # Get cash flow statement for capex and other metrics
         try:
-            overview = stock.company.overview()
-            if not overview.empty:
-                df['market_cap'] = overview.get('market_cap', None)
+            cash_flow = stock.finance.cash_flow(period=period, lang='en', dropna=True)
+            print(f"Cash flow header: {cash_flow.columns}")
+            
+            if not cash_flow.empty:
+                # Using pd.option_context to show complete data
+                with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
+                    print(f"Cash flow data:\n{cash_flow.head().to_string()}")
+                
+                # Map cash flow metrics to our model fields
+                cash_flow_mapping = {
+                    'invest_cost': 'capital_expenditure',  # From guide
+                    'from_financial': 'issuance_or_purchase_of_equity_shares',  # From guide
+                    'from_sale': 'operating_cash_flow',
+                    'from_invest': 'investing_cash_flow',
+                    'free_cash_flow': 'free_cash_flow'
+                }
+                
+                # Add cash flow metrics to df
+                for cf_col, metric_field in cash_flow_mapping.items():
+                    if cf_col in cash_flow.columns and metric_field:
+                        df[metric_field] = cash_flow[cf_col]
+        except Exception as e:
+            print(f'Error fetching cash flow data: {str(e)}')
+            
+        # Get balance sheet for asset and liability data
+        try:
+            balance_sheet = stock.finance.balance_sheet(period=period, lang='en', dropna=True)
+            print(f"Balance sheet header: {balance_sheet.columns}")
+            
+            if not balance_sheet.empty:
+                # Using pd.option_context to show complete data
+                with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
+                    print(f"Balance sheet data:\n{balance_sheet.head().to_string()}")
+                
+                # Map balance sheet metrics to our model fields
+                balance_sheet_mapping = {
+                    'current_asset': 'short_asset',
+                    'asset': 'total_assets',  # From guide
+                    'debt': 'total_liabilities',  # From guide
+                    'equity': 'shareholders_equity',
+                    'cash': 'cash_and_equivalents',
+                    'inventory': 'inventory',
+                    'short_asset': 'current_assets',
+                    'short_debt': 'current_liabilities'
+                }
+                
+                # Add balance sheet metrics to df
+                for bs_col, metric_field in balance_sheet_mapping.items():
+                    if bs_col in balance_sheet.columns and metric_field:
+                        df[metric_field] = balance_sheet[bs_col]
+        except Exception as e:
+            print(f'Error fetching balance sheet data: {str(e)}')
+            
+        # Get dividends data
+        try:
+            dividend_df = stock.company.dividends()
+            if not dividend_df.empty:
+                # Using pd.option_context to show complete data
+                with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
+                    print(f"Dividend data:\n{dividend_df.to_string()}")
+                
+                # Get outstanding shares from company overview
+                overview = stock.company.overview()
+                outstanding_shares = overview['outstanding_share'].iloc[0] * 1000000 if 'outstanding_share' in overview.columns else 0
+                
+                if outstanding_shares > 0:
+                    # Add outstanding_shares to df for all periods
+                    df['outstanding_shares'] = outstanding_shares
+                    print(f"Added outstanding_shares: {outstanding_shares}")
+                    
+                    # Calculate dividend payout for each year
+                    if 'cash_dividend_percentage' in dividend_df.columns and 'cash_year' in dividend_df.columns:
+                        # Group by cash_year and sum dividend percentages
+                        par_value = 10000  # VND
+                        dividend_by_year = dividend_df.groupby('cash_year')['cash_dividend_percentage'].sum()
+                        
+                        # Calculate actual dividend payout
+                        dividend_payout = dividend_by_year.apply(lambda x: x * outstanding_shares * par_value)
+                        print(f"Calculated dividend payouts by year: {dividend_payout}")
+                        
+                        # Add to df by matching years
+                        for year, dividend_value in dividend_payout.items():
+                            # Match with df index years and set dividends_and_other_cash_distributions
+                            year_mask = df.index.year == year
+                            if any(year_mask):
+                                df.loc[year_mask, 'dividends_and_other_cash_distributions'] = -dividend_value  # Negative for cash outflow
+                                print(f"Added dividend for year {year}: {-dividend_value}")
+        except Exception as e:
+            print(f'Error fetching dividend data: {str(e)}')
+            
+        # Get market cap from company overview if not already done
+        try:
+            if 'outstanding_shares' not in df.columns:
+                overview = stock.company.overview()
+                # Display all overview data
+                with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
+                    print(f"Company overview data:\n{overview.to_string()}")
+                
+                if not overview.empty and 'market_cap' in overview.columns:
+                    df['market_cap'] = overview['market_cap'].iloc[0]
+                    print(f"Added market_cap: {overview['market_cap'].iloc[0]}")
+                
+                if not overview.empty and 'outstanding_share' in overview.columns:
+                    df['outstanding_shares'] = overview['outstanding_share'].iloc[0] * 1000000
+                    print(f"Added outstanding_shares: {overview['outstanding_share'].iloc[0] * 1000000}")
         except Exception as e:
             print(f'Error fetching company overview data: {str(e)}')
         
@@ -106,8 +255,18 @@ def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limi
             print(f'No financial ratios data available for {ticker} before {end_date}')
             return pd.DataFrame()
             
-        df = df.sort_index(ascending=False).head(limit)
-        print(f'Filtered financial ratios data shape: {df.shape}')
+        # Sort by date descending
+        df = df.sort_index(ascending=False)
+        
+        # Show all data before limiting
+        with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
+            print(f'Full financial metrics data:\n{df.to_string()}')
+            
+        # Apply limit if specified
+        if limit and limit > 0:
+            df = df.head(limit)
+            
+        print(f'Filtered financial metrics data shape: {df.shape}')
         
         # Convert DataFrame rows to FinancialMetrics objects
         financial_metrics = []
@@ -118,8 +277,16 @@ def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limi
                     report_period=idx.strftime('%Y-%m-%d'),
                     period=period,
                     currency='VND',
-                    # Map vnstock fields to FinancialMetrics fields with proper error handling
-                    market_cap=row.get('market_cap'),
+                    # Map fields to FinancialMetrics with proper error handling
+                    # Direct mappings from the updated field names
+                    market_cap=_safe_get(row, 'market_cap'),
+                    total_assets=_safe_get(row, 'total_assets'),
+                    total_liabilities=_safe_get(row, 'total_liabilities'),
+                    shareholders_equity=_safe_get(row, 'shareholders_equity'),
+                    cash_and_equivalents=_safe_get(row, 'cash_and_equivalents'),
+                    inventory=_safe_get(row, 'inventory'),
+                    current_assets=_safe_get(row, 'current_assets'),
+                    current_liabilities=_safe_get(row, 'current_liabilities'),
                     price_to_earnings_ratio=_safe_get(row, 'price_to_earning'),
                     price_to_book_ratio=_safe_get(row, 'price_to_book'),
                     enterprise_value_to_ebitda_ratio=_safe_get(row, 'value_before_ebitda'),
@@ -131,34 +298,44 @@ def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limi
                     quick_ratio=_safe_get(row, 'quick_payment'),
                     debt_to_equity=_safe_get(row, 'debt_on_equity'),
                     debt_to_assets=_safe_get(row, 'debt_on_asset'),
-                    operating_margin=_safe_get(row, 'operating_profit_margin'),
+                    operating_margin=_safe_get(row, 'operating_margin'),
                     gross_margin=_safe_get(row, 'gross_profit_margin'),
                     net_margin=_safe_get(row, 'post_tax_margin'),
                     revenue_growth=_safe_get(row, 'revenue_growth'),
-                    earnings_growth=_safe_get(row, 'eps_change'),
-                    # Calculate additional metrics where possible
-                    enterprise_value=None,  # Not available in vnstock
+                    earnings_growth=_safe_get(row, 'earnings_growth'),
+                    operating_income_growth=_safe_get(row, 'operating_income_growth'),
+                    capital_expenditure=_safe_get(row, 'capital_expenditure'),
+                    depreciation_and_amortization=_safe_get(row, 'depreciation_and_amortization'),
+                    net_income=_safe_get(row, 'net_income'),
+                    outstanding_shares=_safe_get(row, 'outstanding_shares'),
+                    dividends_and_other_cash_distributions=_safe_get(row, 'dividends_and_other_cash_distributions'),
+                    issuance_or_purchase_of_equity_shares=_safe_get(row, 'issuance_or_purchase_of_equity_shares'),
+                    operating_cash_flow=_safe_get(row, 'operating_cash_flow'),
+                    investing_cash_flow=_safe_get(row, 'investing_cash_flow'),
+                    free_cash_flow=_safe_get(row, 'free_cash_flow'),
+                    # Additional metrics to keep existing functionality
                     price_to_sales_ratio=_safe_get(row, 'price_to_sale'),
-                    enterprise_value_to_revenue_ratio=None,  # Not available in vnstock
-                    free_cash_flow_yield=None,  # Not available in vnstock
-                    peg_ratio=None,  # Not available in vnstock
                     return_on_invested_capital=_safe_get(row, 'roic'),
                     asset_turnover=_safe_get(row, 'asset_turnover'),
                     inventory_turnover=_safe_get(row, 'inventory_turnover'),
                     receivables_turnover=_safe_get(row, 'receivable_turnover'),
                     days_sales_outstanding=_safe_get(row, 'days_receivable'),
-                    operating_cycle=None,  # Not available in vnstock
-                    working_capital_turnover=None,  # Not available in vnstock
                     cash_ratio=_safe_get(row, 'cash_ratio'),
-                    operating_cash_flow_ratio=None,  # Not available in vnstock
                     interest_coverage=_safe_get(row, 'ebit_on_interest'),
                     book_value_growth=_safe_get(row, 'book_value_per_share_change'),
                     earnings_per_share_growth=_safe_get(row, 'eps_change'),
-                    free_cash_flow_growth=None,  # Not available in vnstock
-                    operating_income_growth=None,  # Not available in vnstock
-                    ebitda_growth=None,  # Not available in vnstock
+                    # Fields not directly available in vnstock
+                    enterprise_value=None,
+                    enterprise_value_to_revenue_ratio=None,
+                    free_cash_flow_yield=None,
+                    peg_ratio=None,
+                    operating_cycle=None,
+                    working_capital_turnover=None,
+                    operating_cash_flow_ratio=None,
+                    free_cash_flow_growth=None,
+                    ebitda_growth=None,
                     payout_ratio=_safe_get(row, 'dividend_yield'),
-                    free_cash_flow_per_share=None  # Not available in vnstock
+                    free_cash_flow_per_share=None
                 )
                 financial_metrics.append(metrics)
             except Exception as e:
@@ -275,6 +452,9 @@ def get_financial_statements(ticker: str, statement_type: str = "balance_sheet",
         pd.DataFrame: DataFrame containing financial statement data
     """
     try:
+        # if period is not year or quarter, set it to year
+        if period not in ['year', 'quarter']:
+            period = 'year'        
         stock = _vnstock.stock(symbol=ticker, source=VNSTOCK_SOURCE)
         
         if statement_type == "balance_sheet":
@@ -285,6 +465,10 @@ def get_financial_statements(ticker: str, statement_type: str = "balance_sheet",
             df = stock.finance.cash_flow(period=period, dropna=True)
         else:
             raise ValueError(f"Invalid statement type: {statement_type}")
+        
+        # Display the full statement data
+        with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
+            print(f"Full {statement_type} data for {ticker}:\n{df}")
             
         return df
         
@@ -340,6 +524,9 @@ def search_line_items(
         list[LineItem]: List of line items found
     """
     try:
+        # if period is not year or quarter, set it to year
+        if period not in ['year', 'quarter']:
+            period = 'year'        
         print(f"Fetching financial data for {ticker} from {VNSTOCK_SOURCE}")
         stock = _vnstock.stock(symbol=ticker, source=VNSTOCK_SOURCE)
         
@@ -355,13 +542,19 @@ def search_line_items(
         
         # Get cash flow data
         print(f"Fetching cash flow data...")
-        cash_flow = stock.finance.cash_flow(period=period, dropna=True)
+        cash_flow = stock.finance.cash_flow(period=period, lang='en', dropna=True)
         print(f"Cash flow data shape: {cash_flow.shape if not cash_flow.empty else '(empty)'}")
         
         # Get company overview for share data
         print(f"Fetching company overview...")
         overview = stock.company.overview()
-        outstanding_shares = overview.get('outstanding_share', 0) * 1000000  # Convert from millions to actual shares
+        
+        # Using pd.option_context to display all overview data without truncation
+        with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
+            print(f"Company overview data:\n{overview.to_string()}")
+            
+        # Get outstanding shares (convert from millions to actual shares)
+        outstanding_shares = overview['outstanding_share'].iloc[0] * 1000000 if 'outstanding_share' in overview.columns else 0
         
         # Get dividend data if needed
         dividend_data = None
@@ -370,54 +563,63 @@ def search_line_items(
                 print(f"Fetching dividend data...")
                 dividend_df = stock.company.dividends()
                 if not dividend_df.empty:
-                    # Convert exercise_date to datetime
-                    dividend_df['exercise_date'] = pd.to_datetime(dividend_df['exercise_date'], format='%d/%m/%y')
-                    # Convert percentage to decimal and handle cash vs share dividends
-                    dividend_df['cash_value'] = dividend_df.apply(
-                        lambda row: float(row['cash_dividend_percentage']) if row['issue_method'] == 'cash' else 0, 
-                        axis=1
-                    )
-                    # Group by year and sum cash dividends
-                    dividend_data = dividend_df.groupby(dividend_df['exercise_date'].dt.year)['cash_value'].sum()
-                    print(f"Found dividend data for years: {dividend_data.index.tolist()}")
+                    # Display full dividend data
+                    with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
+                        print(f"Dividend data:\n{dividend_df.to_string()}")
+                        
+                    # Assuming par value is 10,000 VND (as shown in the guide)
+                    par_value = 10000  # VND
+                    
+                    # Group by cash_year and sum cash_dividend_percentage
+                    dividend_data = dividend_df.groupby('cash_year')['cash_dividend_percentage'].sum()
+                    # Calculate total dividend payout per year
+                    dividend_data = dividend_data.apply(lambda x: x * outstanding_shares * par_value)
+                    print(f"Calculated dividend payouts by year: {dividend_data}")
             except Exception as e:
                 print(f"Error fetching dividend data: {str(e)}")
         
-        # Map common line items to their vnstock field names
+        # Map line items to their vnstock field names according to the guide
         field_mapping = {
             # Balance Sheet
-            "current_assets": "current_assets",
-            "current_liabilities": "current_liabilities",
+            "current_assets": "short_asset",
+            "current_liabilities": "short_debt",
             "total_assets": "asset",
             "total_liabilities": "debt",
             "shareholders_equity": "equity",
             "cash_and_equivalents": "cash",
             "accounts_receivable": "short_receivable",
             "inventory": "inventory",
-            "long_term_investments": "long_invest",
+            "long_term_investments": "short_invest",  # May be incorrect but closest field
             "fixed_assets": "fixed_asset",
-            "intangible_assets": "intangible_asset",
+            "intangible_assets": None,  # Not directly available in the headers
             "short_term_debt": "short_debt",
             "long_term_debt": "long_debt",
             
             # Income Statement
-            "revenue": "net_revenue",
-            "net_income": "profit_after_tax",
-            "earnings_per_share": "basic_earnings_per_share",
-            "operating_income": "operating_profit",
+            "revenue": "revenue",
+            "operating_margin": None,  # Will calculate as (operation_profit / revenue) * 100
+            "net_income": "post_tax_profit",
+            "earnings_per_share": "earning_per_share",  # This is in the ratio data
+            "operating_income": "operation_profit",
             "gross_profit": "gross_profit",
-            "interest_income": "interest_income",
+            "interest_income": None,  # Not directly available in the headers
             "interest_expense": "interest_expense",
-            "pretax_income": "profit_before_tax",
-            "income_tax": "corporate_income_tax",
+            "pretax_income": "pre_tax_profit",
+            "income_tax": None,  # Not directly available in the headers
+            "net_income": "share_holder_income",  # Updated based on guide
             
             # Cash Flow
             "operating_cash_flow": "from_sale",
             "investing_cash_flow": "from_invest",
             "financing_cash_flow": "from_financial",
-            "capital_expenditure": "invest_cost",
-            "depreciation_and_amortization": "depreciation",
-            "dividends_and_other_cash_distributions": None  # Will get from dividend data
+            'free_cash_flow': 'free_cash_flow',
+            "capital_expenditure": "invest_cost",  # Negative value represents outflow
+            "issuance_or_purchase_of_equity_shares": "from_financial",
+            
+            # Need to be calculated
+            "outstanding_shares": None,  # Will get from overview directly
+            "depreciation_and_amortization": None,  # Will calculate from ebitda - operation_profit
+            "dividends_and_other_cash_distributions": None  # Will calculate from dividend data
         }
         
         # Combine all statements into one DataFrame
@@ -448,12 +650,20 @@ def search_line_items(
             print(f"No financial data available for {ticker} before {end_date}")
             return []
             
-        combined_data = combined_data.sort_index(ascending=False).head(limit)
-        print(f"Filtered combined data shape: {combined_data.shape}")
+        # Sort by date descending and get all rows
+        combined_data = combined_data.sort_index(ascending=False)
+        if limit and limit > 0:
+            combined_data = combined_data.head(limit)
+        
+        # Set pandas display options to show all data
+        with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
+            print(f"Filtered combined data:\n{combined_data.to_string()}")
         
         # Create LineItem objects
         result_items = []
         for idx, row in combined_data.iterrows():
+            year = idx.year
+            
             # Create a dictionary to store the line item values
             line_item_data = {
                 "ticker": ticker,
@@ -466,67 +676,47 @@ def search_line_items(
             # Add requested line items if available
             for item in line_items:
                 if item in field_mapping:
-                    # Direct mapping available
                     field = field_mapping[item]
+                    
                     if field is not None:
+                        # Direct mapping available
                         value = _safe_get(row, field)
                         if value is not None:
-                            # Convert to millions for consistency
+                            # Convert to actual value (not in millions)
                             line_item_data[item] = value * 1000000
+                            
+                    elif item == "outstanding_shares":
+                        # Already set from overview data
+                        line_item_data[item] = outstanding_shares
+                        
+                    elif item == "depreciation_and_amortization":
+                        # Calculate as ebitda - operation_profit
+                        ebitda = _safe_get(row, "ebitda")
+                        operation_profit = _safe_get(row, "operation_profit")
+                        if ebitda is not None and operation_profit is not None:
+                            depreciation = (ebitda - operation_profit) * 1000000
+                            line_item_data[item] = depreciation
+                            print(f"Calculated depreciation_and_amortization for {ticker} at {idx}: {depreciation}")
+                            
+                    elif item == "operating_margin":
+                        # Calculate operating_margin as (operation_profit / revenue) * 100
+                        operation_profit = _safe_get(row, "operation_profit")
+                        revenue = _safe_get(row, "revenue")
+                        if operation_profit is not None and revenue is not None and revenue != 0:
+                            operating_margin = (operation_profit / revenue) * 100
+                            line_item_data[item] = operating_margin
+                            print(f"Calculated operating_margin for {ticker} at {idx}: {operating_margin}%")
+                            
                     elif item == "dividends_and_other_cash_distributions" and dividend_data is not None:
                         # Get dividend value for this year
-                        year = idx.year
                         if year in dividend_data.index:
-                            # Convert dividend percentage to actual value based on outstanding shares
-                            dividend_pct = dividend_data[year]
-                            line_item_data[item] = -(dividend_pct * outstanding_shares)
+                            # Negative value represents cash outflow
+                            dividend_value = -dividend_data[year]
+                            line_item_data[item] = dividend_value
+                            print(f"Calculated dividends for {ticker} at {idx}: {dividend_value}")
                         else:
                             line_item_data[item] = 0
-                else:
-                    # Calculate derived fields
-                    if item == "free_cash_flow":
-                        operating_cf = _safe_get(row, "from_sale")
-                        capex = _safe_get(row, "invest_cost")
-                        if operating_cf is not None and capex is not None:
-                            line_item_data[item] = (operating_cf - capex) * 1000000
-                    elif item == "operating_margin":
-                        revenue = _safe_get(row, "net_revenue")
-                        operating_profit = _safe_get(row, "operating_profit")
-                        if revenue is not None and operating_profit is not None and revenue != 0:
-                            line_item_data[item] = operating_profit / revenue
-                    elif item == "gross_margin":
-                        revenue = _safe_get(row, "net_revenue")
-                        gross_profit = _safe_get(row, "gross_profit")
-                        if revenue is not None and gross_profit is not None and revenue != 0:
-                            line_item_data[item] = gross_profit / revenue
-                    elif item == "ebit":
-                        operating_profit = _safe_get(row, "operating_profit")
-                        if operating_profit is not None:
-                            line_item_data[item] = operating_profit * 1000000
-                    elif item == "ebitda":
-                        operating_profit = _safe_get(row, "operating_profit")
-                        depreciation = _safe_get(row, "depreciation")
-                        if operating_profit is not None:
-                            line_item_data[item] = (operating_profit + (depreciation or 0)) * 1000000
-                    elif item == "working_capital":
-                        current_assets = _safe_get(row, "current_assets")
-                        current_liabilities = _safe_get(row, "current_liabilities")
-                        if current_assets is not None and current_liabilities is not None:
-                            line_item_data[item] = (current_assets - current_liabilities) * 1000000
-                    elif item == "total_debt":
-                        short_term = _safe_get(row, "short_debt")
-                        long_term = _safe_get(row, "long_debt")
-                        if short_term is not None or long_term is not None:
-                            line_item_data[item] = ((short_term or 0) + (long_term or 0)) * 1000000
-                    elif item == "net_debt":
-                        total_debt = line_item_data.get("total_debt")
-                        cash = _safe_get(row, "cash")
-                        if total_debt is not None and cash is not None:
-                            line_item_data[item] = total_debt - (cash * 1000000)
-                    elif item == "book_value_per_share":
-                        equity = _safe_get(row, "equity")
-                        if equity is not None and outstanding_shares > 0:
-                            line_item_data[item] = (equity * 1000000) / outstanding_shares
+                            print(f"No dividend data for {ticker} at {idx} (year {year})")
             
             # Create LineItem object
             try:
@@ -538,7 +728,16 @@ def search_line_items(
                 continue
         
         print(f"Created {len(result_items)} LineItem objects")
-        print(f"Return data: {result_items}")
+        
+        # Show complete output of the first few line items
+        if result_items:
+            print(f"Sample of line items:")
+            for i, item in enumerate(result_items[:3]):  # Show first 3 items
+                print(f"Item {i+1}:")
+                item_dict = item.model_dump()
+                for k, v in item_dict.items():
+                    print(f"  {k}: {v}")
+        
         return result_items
         
     except Exception as e:

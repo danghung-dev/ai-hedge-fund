@@ -127,7 +127,7 @@ def analyze_business_quality(metrics: list, financial_line_items: list) -> dict:
     score = 0
     details = []
     
-    if not metrics or not financial_line_items:
+    if metrics is None or financial_line_items is None:
         return {
             "score": 0,
             "details": "Insufficient data to analyze business quality"
