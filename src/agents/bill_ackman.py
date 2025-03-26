@@ -8,6 +8,10 @@ import json
 from typing_extensions import Literal
 from utils.progress import progress
 from utils.llm import call_llm
+import logging
+
+# Get logger for this module
+logger = logging.getLogger('hedge_fund.bill_ackman')
 
 class BillAckmanSignal(BaseModel):
     signal: Literal["bullish", "bearish", "neutral"]
@@ -31,6 +35,7 @@ def bill_ackman_agent(state: AgentState):
         progress.update_status("bill_ackman_agent", ticker, "Fetching financial metrics")
         # You can adjust these parameters (period="annual"/"ttm", limit=5/10, etc.)
         metrics = get_financial_metrics(ticker, end_date, period="annual", limit=5)
+        logger.debug("Raw metrics from API for %s: %s", ticker, metrics)
         
         progress.update_status("bill_ackman_agent", ticker, "Gathering financial line items")
         # Request multiple periods of data (annual or TTM) for a more robust long-term view.
@@ -124,10 +129,15 @@ def analyze_business_quality(metrics: list, financial_line_items: list) -> dict:
     Analyze whether the company has a high-quality business with stable or growing cash flows,
     durable competitive advantages, and potential for long-term growth.
     """
+    logger.debug("Metrics type: %s", type(metrics))
+    logger.debug("Metrics content: %s", metrics)
+    logger.debug("Financial line items type: %s", type(financial_line_items))
+    logger.debug("Financial line items content: %s", financial_line_items)
+    
     score = 0
     details = []
     
-    if metrics is None or financial_line_items is None:
+    if metrics is None or financial_line_items is None or metrics.empty:
         return {
             "score": 0,
             "details": "Insufficient data to analyze business quality"
@@ -180,12 +190,14 @@ def analyze_business_quality(metrics: list, financial_line_items: list) -> dict:
         details.append("No free cash flow data across periods.")
     
     # 3. Return on Equity (ROE) check from the latest metrics
-    # (If you want multi-period ROE, you'd need that in financial_line_items as well.)
-    latest_metrics = metrics[0]
-    if latest_metrics.return_on_equity and latest_metrics.return_on_equity > 0.15:
+    # Use iloc to access the first row of the DataFrame
+    latest_metrics = metrics.iloc[0]
+    # add debug log 
+    logger.debug("Latest metrics: %s", latest_metrics)
+    if 'return_on_equity' in latest_metrics and latest_metrics.return_on_equity and latest_metrics.return_on_equity > 0.15:
         score += 2
         details.append(f"High ROE of {latest_metrics.return_on_equity:.1%}, indicating potential moat.")
-    elif latest_metrics.return_on_equity:
+    elif 'return_on_equity' in latest_metrics and latest_metrics.return_on_equity:
         details.append(f"ROE of {latest_metrics.return_on_equity:.1%} is not indicative of a strong moat.")
     else:
         details.append("ROE data not available in metrics.")
@@ -212,7 +224,7 @@ def analyze_financial_discipline(metrics: list, financial_line_items: list) -> d
         }
     
     # 1. Multi-period debt ratio or debt_to_equity
-    # Check if the company’s leverage is stable or improving
+    # Check if the company's leverage is stable or improving
     debt_to_equity_vals = [item.debt_to_equity for item in financial_line_items if item.debt_to_equity is not None]
     
     # If we have multi-year data, see if D/E ratio has gone down or stayed <1 across most periods

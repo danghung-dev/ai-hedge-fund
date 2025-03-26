@@ -7,46 +7,62 @@ def object_to_dict(obj):
         return {key: object_to_dict(value) for key, value in obj.__dict__.items()}
     return obj
 
+# Set display options to show all columns
+pd.set_option('display.max_columns', None)
+pd.set_option('display.width', 1000)
+
 # Initialize the stock object with the desired symbol and source
 stock = Vnstock().stock(symbol='NVL', source='TCBS')
 company = stock.company
+
+dividends = company.dividends()
+print("\nDIVIDENDS INFO:")
+dividends.info()
+
 shareholders = company.shareholders()
-print(f"shareholders header: {shareholders.columns}")
+print("\nSHAREHOLDERS INFO:")
+shareholders.info()
+
 officers = company.officers()
-print(f"officers header: {officers.columns}")
+print("\nOFFICERS INFO:")
+officers.info()
 
 events = company.events()
-print(f"events header: {events.columns}")
+print("\nEVENTS INFO:")
+events.info()
 
 news = company.news()
-print(f"news header: {news.columns}")
 
+print("\nNEWS INFO:")
+news.info()
 
 overview = company.overview()
-print(f"overview header: {overview.columns}")
-# print data sample 5 rows 
-print(f"overview data: {overview.head()}")
-profile = company.profile()
-print(f"profile header: {profile.columns}")
-dividends = company.dividends()
-print(f"dividends header: {dividends.columns}")
-# print data sample 5 rows 
-print(f"dividends data: {dividends.head()}")
-insider_deals = company.insider_deals()
-print(f"insider_deals header: {insider_deals.columns}")
-# print data sample 5 rows 
-print(f"insider_deals data: {insider_deals.head()}")
+print("\nOVERVIEW INFO:")
+overview.info()
 
+profile = company.profile()
+print("\nPROFILE INFO:")
+profile.info()
+
+
+insider_deals = company.insider_deals()
+print("\nINSIDER DEALS INFO:")
+insider_deals.info()
 
 ratio = stock.finance.ratio(period='year', lang='en', dropna=True)
-print(f"ratio header: {ratio.columns}")
+print("\nRATIO INFO:")
+ratio.info()
+
 income_stmt = stock.finance.income_statement(period='year', lang='en', dropna=True)
-print(f"Income statement header: {income_stmt.columns}")
+print("\nINCOME STATEMENT INFO:")
+income_stmt.info()
 
-balance_sheet = stock.finance.balance_sheet(period='year', lang='vi')
-print(f"balance_sheet header: {balance_sheet.columns}")
+balance_sheet = stock.finance.balance_sheet(period='year', lang='en')
+print("\nBALANCE SHEET INFO:")
+balance_sheet.info()
 
-cash_flow = stock.finance.cash_flow(period='year', lang='vi')
-print(f"cash_flow header: {cash_flow.columns}")
+cash_flow = stock.finance.cash_flow(period='year', lang='en')
+print("\nCASH FLOW INFO:")
+cash_flow.info()
 
 

@@ -11,8 +11,9 @@ from utils.llm import call_llm
 import math
 import os
 import pandas as pd
+import logging
 
-
+logger = logging.getLogger('ben_graham')
 class BenGrahamSignal(BaseModel):
     signal: Literal["bullish", "bearish", "neutral"]
     confidence: float
@@ -43,7 +44,8 @@ def ben_graham_agent(state: AgentState):
         financial_line_items = search_line_items(ticker, ["earnings_per_share", "revenue", "net_income", "book_value_per_share", "total_assets", 
                                                           "total_liabilities", "current_assets", "current_liabilities", "dividends_and_other_cash_distributions", "outstanding_shares"], 
                                                           end_date, period=period, limit=10)
-
+        # log debug using logging framework
+        logging.info(f"Financial line items: {financial_line_items}")
         progress.update_status("ben_graham_agent", ticker, "Getting market cap")
         market_cap = get_market_cap(ticker, end_date)
 

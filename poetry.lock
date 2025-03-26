@@ -3482,14 +3482,14 @@ dev = ["black (>=21.5b2)", "pytest (>=6.0.0)"]
 
 [[package]]
 name = "vnstock"
-version = "3.2.1"
+version = "3.2.2"
 description = "A comprehensive and transparent solution for Vietnamese stock market analysis."
 optional = false
 python-versions = ">=3.10"
 groups = ["main"]
 files = [
-    {file = "vnstock-3.2.1-py3-none-any.whl", hash = "sha256:d1725dcfdae6bc39ed1a341ce4e2c38cd5cc4516398aa9fdd6f79dec5c1551cd"},
-    {file = "vnstock-3.2.1.tar.gz", hash = "sha256:6ed7ebf641e75e68474e4d8df7ae13e0f4e50654c30ac88b91144c14844a0516"},
+    {file = "vnstock-3.2.2-py3-none-any.whl", hash = "sha256:41dadda6f135a2f2b29f2c5de4ed776f351bc1435a818dcd4cc732326e2aa5ea"},
+    {file = "vnstock-3.2.2.tar.gz", hash = "sha256:3607e0868e0dc6671c9658b1d3f926a157164502c1ebd6f59f39b559d5efcf1a"},
 ]
 
 [package.dependencies]
@@ -3728,4 +3728,4 @@ propcache = ">=0.2.0"
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "ccfa0a4ba9ec017fb4e94872eb287f446f1cb32890a59e158fd249c75c2b6ba1"
+content-hash = "d96c30eda0b9cd0fc5bfe9a19e1053da1b8e674d268a089611c62e1e9537e417"

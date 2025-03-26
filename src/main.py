@@ -18,8 +18,9 @@ from utils.display import print_trading_output
 from utils.analysts import ANALYST_ORDER, get_analyst_nodes
 from utils.progress import progress
 from llm.models import LLM_ORDER, get_model_info
-
 import argparse
+import logging
+import os
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from tabulate import tabulate
@@ -28,6 +29,33 @@ import json
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Set up logging
+def setup_logging():
+    # Create logs directory if it doesn't exist
+    logs_dir = "logs"
+    if not os.path.exists(logs_dir):
+        os.makedirs(logs_dir)
+    
+    # Create a timestamp for the log file
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(logs_dir, f"hedge_fund_{timestamp}.log")
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    
+    # Create a logger
+    return logging.getLogger('hedge_fund')
+
+# Initialize logger
+logger = setup_logging()
 
 init(autoreset=True)
 
