@@ -33,9 +33,7 @@ def bill_ackman_agent(state: AgentState):
     
     for ticker in tickers:
         progress.update_status("bill_ackman_agent", ticker, "Fetching financial metrics")
-        # You can adjust these parameters (period="annual"/"ttm", limit=5/10, etc.)
         metrics = get_financial_metrics(ticker, end_date, period="annual", limit=5)
-        logger.debug("Raw metrics from API for %s: %s", ticker, metrics)
         
         progress.update_status("bill_ackman_agent", ticker, "Gathering financial line items")
         # Request multiple periods of data (annual or TTM) for a more robust long-term view.
@@ -129,15 +127,10 @@ def analyze_business_quality(metrics: list, financial_line_items: list) -> dict:
     Analyze whether the company has a high-quality business with stable or growing cash flows,
     durable competitive advantages, and potential for long-term growth.
     """
-    logger.debug("Metrics type: %s", type(metrics))
-    logger.debug("Metrics content: %s", metrics)
-    logger.debug("Financial line items type: %s", type(financial_line_items))
-    logger.debug("Financial line items content: %s", financial_line_items)
-    
     score = 0
     details = []
     
-    if metrics is None or financial_line_items is None or metrics.empty:
+    if not metrics or not financial_line_items:
         return {
             "score": 0,
             "details": "Insufficient data to analyze business quality"
@@ -190,14 +183,12 @@ def analyze_business_quality(metrics: list, financial_line_items: list) -> dict:
         details.append("No free cash flow data across periods.")
     
     # 3. Return on Equity (ROE) check from the latest metrics
-    # Use iloc to access the first row of the DataFrame
-    latest_metrics = metrics.iloc[0]
-    # add debug log 
-    logger.debug("Latest metrics: %s", latest_metrics)
-    if 'return_on_equity' in latest_metrics and latest_metrics.return_on_equity and latest_metrics.return_on_equity > 0.15:
+    # (If you want multi-period ROE, you'd need that in financial_line_items as well.)
+    latest_metrics = metrics[0]
+    if latest_metrics.return_on_equity and latest_metrics.return_on_equity > 0.15:
         score += 2
         details.append(f"High ROE of {latest_metrics.return_on_equity:.1%}, indicating potential moat.")
-    elif 'return_on_equity' in latest_metrics and latest_metrics.return_on_equity:
+    elif latest_metrics.return_on_equity:
         details.append(f"ROE of {latest_metrics.return_on_equity:.1%} is not indicative of a strong moat.")
     else:
         details.append("ROE data not available in metrics.")
@@ -369,13 +360,26 @@ def generate_ackman_output(
             5. Invest with high conviction in a concentrated portfolio for the long term.
             6. Potential activist approach if management or operational improvements can unlock value.
             
+
             Rules:
             - Evaluate brand strength, market position, or other moats.
             - Check free cash flow generation, stable or growing earnings.
             - Analyze balance sheet health (reasonable debt, good ROE).
             - Buy at a discount to intrinsic value; higher discount => stronger conviction.
             - Engage if management is suboptimal or if there's a path for strategic improvements.
-            - Provide a rational, data-driven recommendation (bullish, bearish, or neutral)."""
+            - Provide a rational, data-driven recommendation (bullish, bearish, or neutral).
+            
+            When providing your reasoning, be thorough and specific by:
+            1. Explaining the quality of the business and its competitive advantages in detail
+            2. Highlighting the specific financial metrics that most influenced your decision (FCF, margins, leverage)
+            3. Discussing any potential for operational improvements or management changes
+            4. Providing a clear valuation assessment with numerical evidence
+            5. Identifying specific catalysts that could unlock value
+            6. Using Bill Ackman's confident, analytical, and sometimes confrontational style
+            
+            For example, if bullish: "This business generates exceptional free cash flow with a 15% margin and has a dominant market position that competitors can't easily replicate. Trading at only 12x FCF, there's a 40% discount to intrinsic value, and management's recent capital allocation decisions suggest..."
+            For example, if bearish: "Despite decent market position, FCF margins have deteriorated from 12% to 8% over three years. Management continues to make poor capital allocation decisions by pursuing low-ROIC acquisitions. Current valuation at 18x FCF provides no margin of safety given the operational challenges..."
+            """
         ),
         (
             "human",

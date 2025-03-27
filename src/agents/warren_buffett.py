@@ -79,7 +79,7 @@ def warren_buffett_agent(state: AgentState):
             margin_of_safety = (intrinsic_value - market_cap) / market_cap
 
         # Generate trading signal using a stricter margin-of-safety requirement
-        # if fundamentals+moat+management are strong but margin_of_safety < 0.3, it’s neutral
+        # if fundamentals+moat+management are strong but margin_of_safety < 0.3, it's neutral
         # if fundamentals are very weak or margin_of_safety is severely negative -> bearish
         # else bullish
         if (total_score >= 0.7 * max_possible_score) and margin_of_safety and (margin_of_safety >= 0.3):
@@ -181,7 +181,9 @@ def analyze_fundamentals(metrics: list) -> dict[str, any]:
     else:
         reasoning.append("Current ratio data not available")
 
-    return {"score": score, "details": "; ".join(reasoning), "metrics": latest_metrics.model_dump()}
+    # Convert metrics to dict for return
+    metrics_dict = latest_metrics.model_dump()
+    return {"score": score, "details": "; ".join(reasoning), "metrics": metrics_dict}
 
 
 def analyze_consistency(financial_line_items: list) -> dict[str, any]:
@@ -394,7 +396,7 @@ def generate_buffett_output(
         [
             (
                 "system",
-                """You are a Warren Buffett AI agent. Decide on investment signals based on Warren Buffett’s principles:
+                """You are a Warren Buffett AI agent. Decide on investment signals based on Warren Buffett's principles:
                 - Circle of Competence: Only invest in businesses you understand
                 - Margin of Safety (> 30%): Buy at a significant discount to intrinsic value
                 - Economic Moat: Look for durable competitive advantages

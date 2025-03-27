@@ -108,79 +108,36 @@ def analyze_earnings_stability(metrics: list, financial_line_items: list) -> dic
     score = 0
     details = []
 
-    # Check for empty or None inputs
-    if isinstance(metrics, pd.DataFrame):
-        if metrics.empty:
-            print("Metrics DataFrame is empty")
-            return {"score": 0, "details": "No financial metrics data available"}
-    elif not metrics:
-        print("No metrics data provided")
-        return {"score": 0, "details": "No financial metrics data provided"}
+    if not metrics or not financial_line_items:
+        return {"score": score, "details": "Insufficient data for earnings stability analysis"}
 
-    if not financial_line_items:
-        print("No financial line items provided")
-        return {"score": 0, "details": "No financial line items data available"}
-
-    # Debug log
-    print(f"Processing {len(financial_line_items)} financial line items")
-    
-    # Check if all values are None
-    all_none = all(
-        all(getattr(item, attr) is None for attr in ['earnings_per_share', 'revenue', 'net_income'])
-        for item in financial_line_items
-    )
-    
-    if all_none:
-        print("All financial line items have None values")
-        return {"score": 0, "details": "No valid financial data available - all values are None"}
-
-    # Extract EPS values, handling potential None values
     eps_vals = []
     for item in financial_line_items:
-        if hasattr(item, 'earnings_per_share') and item.earnings_per_share is not None:
-            try:
-                eps = float(item.earnings_per_share)
-                if math.isfinite(eps):  # Check for valid finite number
-                    eps_vals.append(eps)
-                else:
-                    print(f"Skipping non-finite EPS value: {eps}")
-            except (ValueError, TypeError) as e:
-                print(f"Error converting EPS value: {e}")
-                continue
+        if item.earnings_per_share is not None:
+            eps_vals.append(item.earnings_per_share)
 
-    print(f"Found {len(eps_vals)} valid EPS values")
-    
     if len(eps_vals) < 2:
-        return {"score": 0, "details": "Insufficient valid EPS data points for stability analysis"}
+        details.append("Not enough multi-year EPS data.")
+        return {"score": score, "details": "; ".join(details)}
 
-    try:
-        # 1. Consistently positive EPS
-        positive_eps_years = sum(1 for e in eps_vals if e > 0)
-        total_eps_years = len(eps_vals)
-        
-        if positive_eps_years == total_eps_years:
-            score += 3
-            details.append(f"EPS was positive in all {total_eps_years} available periods")
-        elif positive_eps_years >= (total_eps_years * 0.8):
-            score += 2
-            details.append(f"EPS was positive in {positive_eps_years} out of {total_eps_years} periods")
-        else:
-            details.append(f"EPS was negative in {total_eps_years - positive_eps_years} out of {total_eps_years} periods")
+    # 1. Consistently positive EPS
+    positive_eps_years = sum(1 for e in eps_vals if e > 0)
+    total_eps_years = len(eps_vals)
+    if positive_eps_years == total_eps_years:
+        score += 3
+        details.append("EPS was positive in all available periods.")
+    elif positive_eps_years >= (total_eps_years * 0.8):
+        score += 2
+        details.append("EPS was positive in most periods.")
+    else:
+        details.append("EPS was negative in multiple periods.")
 
-        # 2. EPS growth from earliest to latest
-        if eps_vals[0] != 0 and eps_vals[-1] != 0:  # Avoid division by zero
-            growth_rate = (eps_vals[0] - eps_vals[-1]) / abs(eps_vals[-1])
-            if growth_rate > 0:
-                score += 1
-                details.append(f"EPS grew by {growth_rate:.1%} from earliest to latest period")
-            else:
-                details.append(f"EPS declined by {abs(growth_rate):.1%} from earliest to latest period")
-        else:
-            details.append("Cannot calculate EPS growth rate due to zero values")
-            
-    except Exception as e:
-        print(f"Error in earnings stability analysis: {str(e)}")
-        return {"score": 0, "details": f"Error analyzing earnings stability: {str(e)}"}
+    # 2. EPS growth from earliest to latest
+    if eps_vals[-1] > eps_vals[0]:
+        score += 1
+        details.append("EPS grew from earliest to latest period.")
+    else:
+        details.append("EPS did not grow from earliest to latest period.")
 
     return {"score": score, "details": "; ".join(details)}
 
@@ -347,8 +304,19 @@ def generate_graham_output(
             3. Prefer stable earnings over multiple years.
             4. Consider dividend record for extra safety.
             5. Avoid speculative or high-growth assumptions; focus on proven metrics.
+            
+            When providing your reasoning, be thorough and specific by:
+            1. Explaining the key valuation metrics that influenced your decision the most (Graham Number, NCAV, P/E, etc.)
+            2. Highlighting the specific financial strength indicators (current ratio, debt levels, etc.)
+            3. Referencing the stability or instability of earnings over time
+            4. Providing quantitative evidence with precise numbers
+            5. Comparing current metrics to Graham's specific thresholds (e.g., "Current ratio of 2.5 exceeds Graham's minimum of 2.0")
+            6. Using Benjamin Graham's conservative, analytical voice and style in your explanation
+            
+            For example, if bullish: "The stock trades at a 35% discount to net current asset value, providing an ample margin of safety. The current ratio of 2.5 and debt-to-equity of 0.3 indicate strong financial position..."
+            For example, if bearish: "Despite consistent earnings, the current price of $50 exceeds our calculated Graham Number of $35, offering no margin of safety. Additionally, the current ratio of only 1.2 falls below Graham's preferred 2.0 threshold..."
                         
-            Return a rational recommendation: bullish, bearish, or neutral, with a confidence level (0-100) and concise reasoning.
+            Return a rational recommendation: bullish, bearish, or neutral, with a confidence level (0-100) and thorough reasoning.
             """
         ),
         (

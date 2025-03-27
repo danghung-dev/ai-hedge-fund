@@ -15,6 +15,13 @@ stock_head.info()
 print("\nFirst few rows of the data:")
 print(stock_head.head())
 
+df = stock.quote.history(
+    start='2024-01-01',
+    end='2024-12-31',
+    interval='1D'
+)
+print(df.head(5))
+
 # # Initialize the stock object with the desired symbol and source
 # stock = Vnstock().stock(symbol='VNM', source='TCBS')
 # company = stock.company

@@ -2,13 +2,17 @@ import os
 import pandas as pd
 from datetime import datetime
 from vnstock import Vnstock, Quote, Listing, Trading, Company, Finance
-from data.models import FinancialMetrics, FinancialMetricsResponse, LineItem, LineItemResponse, InsiderTrade, CompanyNews
+from data.cache import get_cache
+from data.models import FinancialMetrics, FinancialMetricsResponse, LineItem, LineItemResponse, InsiderTrade, CompanyNews, Price
 
 # Initialize Vnstock instance with source from environment variable
 VNSTOCK_SOURCE = os.environ.get('VNSTOCK_SOURCE', 'TCBS')
 _vnstock = Vnstock()
 
-def get_prices(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
+# Global cache instance
+_cache = get_cache()
+
+def get_prices(ticker: str, start_date: str, end_date: str) -> list[Price]:
     """
     Fetch historical price data for a given ticker using vnstock.
     
@@ -18,9 +22,34 @@ def get_prices(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
         end_date (str): End date in YYYY-MM-DD format
         
     Returns:
-        pd.DataFrame: DataFrame containing price data
+        list[Price]: List of Price objects with historical price data
     """
+    # Check cache first
+    if cached_data := _cache.get_prices(ticker):
+        # Filter cached data by date range
+        # Note: Assuming the date field in cache is "time"
+        filtered_data = [item for item in cached_data if start_date <= item["time"] <= end_date]
+        if filtered_data:
+            print(f"Using cached price data for {ticker} between {start_date} and {end_date}")
+            # Convert cached data to Price objects
+            price_objects = [
+                Price(
+                    open=float(item["open"]),
+                    close=float(item["close"]),
+                    high=float(item["high"]),
+                    low=float(item["low"]),
+                    volume=int(item["volume"]),
+                    time=item["time"]
+                )
+                for item in filtered_data
+            ]
+            # Sort by date
+            price_objects.sort(key=lambda x: x.time)
+            return price_objects
+
     try:
+        # If not in cache, fetch from API
+        print(f"Fetching fresh price data for {ticker} between {start_date} and {end_date}")
         # Initialize stock with configured source
         stock = _vnstock.stock(symbol=ticker, source=VNSTOCK_SOURCE)
         # Get historical data
@@ -33,42 +62,38 @@ def get_prices(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
         # Check if the dataframe is empty or None
         if df is None or df.empty:
             print(f"No price data found for {ticker} between {start_date} and {end_date}")
-            return pd.DataFrame()
+            return []
         
-        # Rename columns to match our schema
-        df = df.rename(columns={
-            'time': 'Date',
-            'open': 'open',
-            'high': 'high',
-            'low': 'low',
-            'close': 'close',
-            'volume': 'volume'
-        })
+        # Convert timestamps to strings in ISO format for JSON serialization
+        df['time'] = df['time'].dt.strftime('%Y-%m-%d')
         
-        # Set Date as index
-        df['Date'] = pd.to_datetime(df['Date'])
-        df.set_index('Date', inplace=True)
+        # Prepare data for caching
+        cache_data = df.to_dict('records')
+        _cache.set_prices(ticker, cache_data)
         
-        # Ensure numeric columns
-        numeric_cols = ['open', 'close', 'high', 'low', 'volume']
-        for col in numeric_cols:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-            
-        df.sort_index(inplace=True)
-        print(f"Price data for {ticker} shape: {df.shape}")
-        print(f"Price data for {ticker} columns: {df.columns}")
+        # Convert to list of Price objects
+        price_objects = [
+            Price(
+                open=float(row["open"]),
+                close=float(row["close"]),
+                high=float(row["high"]),
+                low=float(row["low"]),
+                volume=int(row["volume"]),
+                time=row["time"]
+            )
+            for _, row in df.iterrows()
+        ]
         
-        # Show full price data
-        with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
-            print(f"Full price data for {ticker}:\n{df}")
-            
-        return df
+        # Sort by date
+        price_objects.sort(key=lambda x: x.time)
+        
+        return price_objects
         
     except Exception as e:
         print(f"Error fetching price data for {ticker}: {str(e)}")
-        return pd.DataFrame()
+        return []
 
-def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limit: int = 10) -> pd.DataFrame:
+def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limit: int = 10) -> list[FinancialMetrics]:
     """
     Fetch financial metrics for a given ticker using vnstock.
     
@@ -79,8 +104,17 @@ def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limi
         limit (int): Number of periods to return
         
     Returns:
-        pd.DataFrame: DataFrame containing financial metrics
+        list[FinancialMetrics]: List of FinancialMetrics objects
     """
+    # Check cache first
+    if cached_data := _cache.get_financial_metrics(ticker):
+        # Filter cached data by date and limit
+        filtered_data = [FinancialMetrics(**metric) for metric in cached_data if metric["report_period"] <= end_date]
+        filtered_data.sort(key=lambda x: x.report_period, reverse=True)
+        if filtered_data:
+            print(f"Using cached financial metrics for {ticker} before {end_date}")
+            return filtered_data[:limit]
+    
     try:
         # Validate period parameter
         if period not in ['year', 'quarter']:
@@ -111,7 +145,7 @@ def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limi
         # Check if ratio dataframe is empty
         if ratio_df.empty:
             print(f'No financial ratios data available for {ticker}')
-            return pd.DataFrame()
+            return []
         
         # Convert all date indexes to datetime for consistent processing
         ratio_df.index = pd.to_datetime(ratio_df.index)
@@ -133,7 +167,7 @@ def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limi
         
         if ratio_df.empty:
             print(f'No financial ratios data available for {ticker} before {end_date}')
-            return pd.DataFrame()
+            return []
         
         # Sort by date descending
         ratio_df = ratio_df.sort_index(ascending=False)
@@ -323,17 +357,17 @@ def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limi
         
         print(f"Generated {len(financial_metrics)} financial metrics entries for {ticker}")
         
-        # Create response and convert to DataFrame
-        response = FinancialMetricsResponse(financial_metrics=financial_metrics)
-        result_df = pd.DataFrame([m.model_dump() for m in response.financial_metrics])
+        # Cache the results as dicts
+        _cache.set_financial_metrics(ticker, [m.model_dump() for m in financial_metrics])
         
-        return result_df
+        # Return the list of FinancialMetrics objects directly
+        return financial_metrics
         
     except Exception as e:
         print(f"Error fetching financial metrics for {ticker}: {str(e)}")
         import traceback
         traceback.print_exc()
-        return pd.DataFrame()
+        return []
 
 def _safe_get(row: pd.Series, field: str) -> float | None:
     """Helper function to safely get a field value from a pandas Series."""
@@ -374,10 +408,12 @@ def get_market_cap(ticker: str, end_date: str) -> float:
     """
     try:
         # Get financial metrics which include market cap
-        metrics = get_financial_metrics(ticker, end_date, limit=1)
-        if 'market_cap' in metrics.columns:
-            return metrics['market_cap'].iloc[0]
-        return None
+        financial_metrics = get_financial_metrics(ticker, end_date)
+        market_cap = financial_metrics[0].market_cap
+        if not market_cap:
+            return None
+
+        return market_cap
         
     except Exception as e:
         raise Exception(f"Error fetching market cap for {ticker}: {str(e)}")
@@ -452,17 +488,37 @@ def get_financial_statements(ticker: str, statement_type: str = "balance_sheet",
         raise Exception(f"Error fetching {statement_type} for {ticker}: {str(e)}")
 
 # Helper function to convert prices to DataFrame (maintaining compatibility)
-def prices_to_df(prices: pd.DataFrame) -> pd.DataFrame:
+def prices_to_df(prices: list[Price]) -> pd.DataFrame:
     """
-    Convert prices DataFrame to match the expected schema.
+    Convert list of Price objects to a pandas DataFrame.
     
     Args:
-        prices (pd.DataFrame): DataFrame from get_prices
+        prices (list[Price]): List of Price objects
         
     Returns:
         pd.DataFrame: Formatted DataFrame
     """
-    return prices
+    if not prices:
+        return pd.DataFrame()
+        
+    # Convert Price objects to dict records
+    records = [price.model_dump() for price in prices]
+    
+    # Create DataFrame
+    df = pd.DataFrame(records)
+    
+    # Set Date as index
+    df['Date'] = pd.to_datetime(df['time'])
+    df.set_index('Date', inplace=True)
+    
+    # Ensure numeric columns
+    numeric_cols = ['open', 'close', 'high', 'low', 'volume']
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+        
+    df.sort_index(inplace=True)
+    
+    return df
 
 # Maintain compatibility with existing code
 def get_price_data(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
@@ -477,7 +533,8 @@ def get_price_data(ticker: str, start_date: str, end_date: str) -> pd.DataFrame:
     Returns:
         pd.DataFrame: DataFrame containing price data
     """
-    return get_prices(ticker, start_date, end_date)
+    prices = get_prices(ticker, start_date, end_date)
+    return prices_to_df(prices)
 
 def search_line_items(
     ticker: str,
@@ -499,6 +556,45 @@ def search_line_items(
     Returns:
         list[LineItem]: List of line items found
     """
+    # Check cache first
+    if cached_data := _cache.get_line_items(ticker):
+        # Filter by report period first
+        filtered_data = []
+        for item in cached_data:
+            # Only include if report period is before end_date
+            if item["report_period"] <= end_date:
+                filtered_data.append(item)
+        
+        if filtered_data:
+            # Convert to LineItem objects
+            result_items = [LineItem(**item) for item in filtered_data]
+            # Sort by report date descending and apply limit
+            result_items.sort(key=lambda x: x.report_period, reverse=True)
+            limited_items = result_items[:limit]
+            
+            if limited_items:
+                # Check if all requested line items are present in at least one cache entry
+                all_line_items_present = True
+                for item in line_items:
+                    # Check if any cache item contains this line item
+                    item_found = False
+                    for cache_item in limited_items:
+                        # If the item has the attribute and it's not None, it's present
+                        if hasattr(cache_item, item) and getattr(cache_item, item) is not None:
+                            item_found = True
+                            break
+                    
+                    if not item_found:
+                        print(f"Line item '{item}' not found in cache, fetching from API")
+                        all_line_items_present = False
+                        break
+                
+                if all_line_items_present:
+                    print(f"Using cached line items for {ticker} - all requested items found")
+                    return limited_items
+                else:
+                    print(f"Not all requested line items found in cache for {ticker}")
+                
     try:
         # if period is not year or quarter, set it to year
         if period not in ['year', 'quarter']:
@@ -586,6 +682,8 @@ def search_line_items(
             "interest_expense": "interest_expense",
             "pretax_income": "pre_tax_profit",
             "income_tax": None,
+            "ebitda": "ebitda",
+            "ebit": "operation_profit",
             
             # Cash Flow
             "operating_cash_flow": "from_sale",
@@ -621,7 +719,9 @@ def search_line_items(
             # Need to be calculated
             "outstanding_shares": None,
             "depreciation_and_amortization": None,
-            "dividends_and_other_cash_distributions": None
+            "dividends_and_other_cash_distributions": None,
+            "research_and_development": None,
+            "total_debt": None,
         }
         
         # Combine all statements into one DataFrame
@@ -693,11 +793,11 @@ def search_line_items(
                                 # These are already in the right units in ratio_df
                                 line_item_data[item] = value 
                             elif item in ["price_to_earnings_ratio", "price_to_book_ratio", "price_to_sales_ratio", 
-                                          "enterprise_value_to_ebitda_ratio", "gross_margin", "net_margin", "return_on_equity",
-                                          "return_on_assets", "return_on_invested_capital", "asset_turnover", 
-                                          "days_sales_outstanding", "working_capital_turnover", "current_ratio", 
-                                          "quick_ratio", "debt_to_equity", "debt_to_assets", "interest_coverage", 
-                                          "book_value_growth", "earnings_per_share_growth"]:
+                                         "enterprise_value_to_ebitda_ratio", "gross_margin", "net_margin", "return_on_equity",
+                                         "return_on_assets", "return_on_invested_capital", "asset_turnover", 
+                                         "days_sales_outstanding", "working_capital_turnover", "current_ratio", 
+                                         "quick_ratio", "debt_to_equity", "debt_to_assets", "interest_coverage", 
+                                         "book_value_growth", "earnings_per_share_growth"]:
                                 # Ratios and percentages don't need to be converted
                                 line_item_data[item] = value
                             else:
@@ -742,6 +842,74 @@ def search_line_items(
                         else:
                             line_item_data[item] = 0
                             print(f"No dividend data for {ticker} at {idx} (year {year})")
+                            
+                    elif item == "total_debt":
+                        # Calculate total debt as sum of short-term and long-term debt
+                        short_debt = _safe_get(row, "short_debt")
+                        long_debt = _safe_get(row, "long_debt")
+                        if short_debt is not None or long_debt is not None:
+                            total_debt = (short_debt or 0) + (long_debt or 0)
+                            line_item_data[item] = total_debt * 1000000  # Convert to actual value
+                            print(f"Calculated total_debt for {ticker} at {idx}: {total_debt * 1000000}")
+                        else:
+                            line_item_data[item] = None
+                            print(f"Could not calculate total_debt for {ticker} at {idx} - missing debt data")
+                            
+                    elif item == "price_to_sales_ratio":
+                        # Calculate market cap first
+                        market_cap = None
+                        if pd.notna(row.get('price_to_earning')) and pd.notna(row.get('earning_per_share')) and outstanding_shares:
+                            market_cap = row['price_to_earning'] * (row['earning_per_share'] * outstanding_shares / 1e9)  # Bn. VND
+                        
+                        # Get revenue
+                        revenue = _safe_get(row, "revenue")
+                        if revenue is not None:
+                            revenue = revenue / 1e9  # Convert to Bn. VND
+                        
+                        # Calculate ratio
+                        if market_cap and revenue and revenue != 0:
+                            price_to_sales = market_cap / revenue
+                            line_item_data[item] = price_to_sales
+                            print(f"Calculated price_to_sales_ratio for {ticker} at {idx}: {price_to_sales}")
+                        else:
+                            line_item_data[item] = None
+                            print(f"Could not calculate price_to_sales_ratio for {ticker} at {idx} - missing data")
+                            
+                    elif item == "ev_to_ebitda_ratio":
+                        # Calculate enterprise value first
+                        enterprise_value = None
+                        market_cap = None
+                        if pd.notna(row.get('price_to_earning')) and pd.notna(row.get('earning_per_share')) and outstanding_shares:
+                            market_cap = row['price_to_earning'] * (row['earning_per_share'] * outstanding_shares / 1e9)  # Bn. VND
+                        
+                        if market_cap:
+                            # Get debt and cash
+                            total_debt = None
+                            if short_debt := _safe_get(row, "short_debt"):
+                                total_debt = short_debt
+                            if long_debt := _safe_get(row, "long_debt"):
+                                total_debt = (total_debt or 0) + long_debt
+                            
+                            cash = _safe_get(row, "cash")
+                            
+                            if total_debt is not None or cash is not None:
+                                total_debt = (total_debt or 0) / 1e9  # Convert to Bn. VND
+                                cash = (cash or 0) / 1e9  # Convert to Bn. VND
+                                enterprise_value = market_cap + total_debt - cash
+                        
+                        # Get EBITDA
+                        ebitda = _safe_get(row, "ebitda")
+                        if ebitda is not None:
+                            ebitda = ebitda / 1e9  # Convert to Bn. VND
+                        
+                        # Calculate ratio
+                        if enterprise_value and ebitda and ebitda != 0:
+                            ev_to_ebitda = enterprise_value / ebitda
+                            line_item_data[item] = ev_to_ebitda
+                            print(f"Calculated ev_to_ebitda_ratio for {ticker} at {idx}: {ev_to_ebitda}")
+                        else:
+                            line_item_data[item] = None
+                            print(f"Could not calculate ev_to_ebitda_ratio for {ticker} at {idx} - missing data")
                 
                 # Calculate additional derived metrics that may not be directly mapped
                 if item == "free_cash_flow_per_share" and outstanding_shares > 0:
@@ -794,6 +962,10 @@ def search_line_items(
                 for k, v in item_dict.items():
                     print(f"  {k}: {v}")
         
+        # Cache the results
+        if result_items:
+            _cache.set_line_items(ticker, [item.model_dump() for item in result_items])
+        
         return result_items
         
     except Exception as e:
@@ -818,6 +990,17 @@ def get_insider_trades(
     Returns:
         list[InsiderTrade]: List of insider trades
     """
+    # Check cache first
+    if cached_data := _cache.get_insider_trades(ticker):
+        # Filter cached data by date range
+        filtered_data = [InsiderTrade(**trade) for trade in cached_data 
+                        if (start_date is None or (trade.get("transaction_date") or trade["filing_date"]) >= start_date)
+                        and (trade.get("transaction_date") or trade["filing_date"]) <= end_date]
+        filtered_data.sort(key=lambda x: x.transaction_date or x.filing_date, reverse=True)
+        if filtered_data:
+            print(f"Using cached insider trades for {ticker}")
+            return filtered_data
+            
     try:
         stock = _vnstock.stock(symbol=ticker, source=VNSTOCK_SOURCE)
         
@@ -854,11 +1037,16 @@ def get_insider_trades(
                 filing_date=row['transaction_date'].strftime('%Y-%m-%d')  # Use transaction date as filing date
             )
             insider_trades.append(trade)
+        
+        # Cache the results
+        if insider_trades:
+            _cache.set_insider_trades(ticker, [trade.model_dump() for trade in insider_trades])
             
         return insider_trades
         
     except Exception as e:
-        raise Exception(f"Error fetching insider trades for {ticker}: {str(e)}")
+        print(f"Error fetching insider trades for {ticker}: {str(e)}")
+        return []
 
 def get_company_news(
     ticker: str,
@@ -878,6 +1066,17 @@ def get_company_news(
     Returns:
         list[CompanyNews]: List of company news
     """
+    # Check cache first
+    if cached_data := _cache.get_company_news(ticker):
+        # Filter cached data by date range
+        filtered_data = [CompanyNews(**news) for news in cached_data 
+                        if (start_date is None or news["date"] >= start_date)
+                        and news["date"] <= end_date]
+        filtered_data.sort(key=lambda x: x.date, reverse=True)
+        if filtered_data:
+            print(f"Using cached company news for {ticker}")
+            return filtered_data
+            
     try:
         stock = _vnstock.stock(symbol=ticker, source=VNSTOCK_SOURCE)
         
@@ -907,8 +1106,13 @@ def get_company_news(
                 url=row.get('link')
             )
             news_items.append(news)
+        
+        # Cache the results
+        if news_items:
+            _cache.set_company_news(ticker, [news.model_dump() for news in news_items])
             
         return news_items
         
     except Exception as e:
-        raise Exception(f"Error fetching company news for {ticker}: {str(e)}") 
+        print(f"Error fetching company news for {ticker}: {str(e)}")
+        return [] 
