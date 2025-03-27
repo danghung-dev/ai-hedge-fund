@@ -216,25 +216,25 @@ def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limi
             # Calculate Enterprise Value: Market Cap + Debt - Cash
             enterprise_value = None
             if market_cap and pd.notna(balance_row.get('debt')) and pd.notna(balance_row.get('cash')):
-                total_debt = balance_row['debt'] / 1e9  # Convert to Bn. VND
-                cash = balance_row['cash'] / 1e9  # Convert to Bn. VND
+                total_debt = balance_row['debt']  # Convert to Bn. VND
+                cash = balance_row['cash']   # Convert to Bn. VND
                 enterprise_value = market_cap + total_debt - cash
                 print(f"Calculated enterprise value: {enterprise_value} Bn VND")
             
             # Calculate revenue for ratio calculations
             revenue = None
             if pd.notna(income_row.get('revenue')):
-                revenue = income_row['revenue'] / 1e9  # Convert to Bn. VND
+                revenue = income_row['revenue']   # Convert to Bn. VND
             
             # Calculate EBITDA for ratios
             ebitda = None
             if pd.notna(income_row.get('ebitda')):
-                ebitda = income_row['ebitda'] / 1e9  # Convert to Bn. VND
+                ebitda = income_row['ebitda']   # Convert to Bn. VND
             
             # Calculate Free Cash Flow for yield
             free_cash_flow = None
             if pd.notna(cash_flow_row.get('free_cash_flow')):
-                free_cash_flow = cash_flow_row['free_cash_flow'] / 1e9  # Convert to Bn. VND
+                free_cash_flow = cash_flow_row['free_cash_flow']  # Convert to Bn. VND
             
             # Calculate additional ratios
             price_to_sales_ratio = market_cap / revenue if market_cap and revenue else None
@@ -245,28 +245,28 @@ def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limi
             # Calculate inventory turnover
             inventory_turnover = None
             if pd.notna(income_row.get('cost_of_good_sold')) and pd.notna(balance_row.get('inventory')):
-                cogs = income_row['cost_of_good_sold'] / 1e9  # Convert to Bn. VND
-                inventory = balance_row['inventory'] / 1e9  # Convert to Bn. VND
+                cogs = income_row['cost_of_good_sold']   # Convert to Bn. VND
+                inventory = balance_row['inventory']  # Convert to Bn. VND
                 inventory_turnover = cogs / inventory if inventory else None
             
             # Calculate receivables turnover
             receivables_turnover = None
             if revenue and pd.notna(balance_row.get('short_receivable')):
-                receivables = balance_row['short_receivable'] / 1e9  # Convert to Bn. VND
+                receivables = balance_row['short_receivable']  # Convert to Bn. VND
                 receivables_turnover = revenue / receivables if receivables else None
             
             # Calculate cash ratio
             cash_ratio = None
             if pd.notna(balance_row.get('cash')) and pd.notna(balance_row.get('short_debt')):
-                cash = balance_row['cash'] / 1e9  # Convert to Bn. VND
-                current_liabilities = balance_row['short_debt'] / 1e9  # Convert to Bn. VND
+                cash = balance_row['cash']  # Convert to Bn. VND
+                current_liabilities = balance_row['short_debt']  # Convert to Bn. VND
                 cash_ratio = cash / current_liabilities if current_liabilities else None
             
             # Calculate operating cash flow ratio
             operating_cash_flow_ratio = None
             if pd.notna(cash_flow_row.get('from_sale')) and pd.notna(balance_row.get('short_debt')):
-                operating_cash_flow = cash_flow_row['from_sale'] / 1e9  # Convert to Bn. VND
-                current_liabilities = balance_row['short_debt'] / 1e9  # Convert to Bn. VND
+                operating_cash_flow = cash_flow_row['from_sale']   # Convert to Bn. VND
+                current_liabilities = balance_row['short_debt']   # Convert to Bn. VND
                 operating_cash_flow_ratio = operating_cash_flow / current_liabilities if current_liabilities else None
             
             # Calculate operating cycle
@@ -285,7 +285,7 @@ def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limi
                     # Par value usually 10,000 VND
                     par_value = 10000
                     total_dividend = dividend_percentage * outstanding_shares * par_value / 1e9
-                    net_income = income_row['post_tax_profit'] / 1e9  # Convert to Bn. VND
+                    net_income = income_row['post_tax_profit']  # Convert to Bn. VND
                     payout_ratio = total_dividend / net_income if net_income else None
                     print(f"Calculated payout ratio: {payout_ratio}")
             
@@ -631,7 +631,7 @@ def search_line_items(
             print(f"Company overview data:\n{overview.to_string()}")
             
         # Get outstanding shares (convert from millions to actual shares)
-        outstanding_shares = overview['outstanding_share'].iloc[0] * 1000000 if 'outstanding_share' in overview.columns else 0
+        outstanding_shares = overview['outstanding_share'].iloc[0]  if 'outstanding_share' in overview.columns else 0
         
         # Get dividend data if needed
         dividend_data = None
@@ -722,6 +722,7 @@ def search_line_items(
             "dividends_and_other_cash_distributions": None,
             "research_and_development": None,
             "total_debt": None,
+            "working_capital": None,
         }
         
         # Combine all statements into one DataFrame
@@ -802,7 +803,7 @@ def search_line_items(
                                 line_item_data[item] = value
                             else:
                                 # Convert to actual value (not in millions)
-                                line_item_data[item] = value * 1000000
+                                line_item_data[item] = value 
                             
                     elif item == "outstanding_shares":
                         # Already set from overview data
@@ -813,7 +814,7 @@ def search_line_items(
                         ebitda = _safe_get(row, "ebitda")
                         operation_profit = _safe_get(row, "operation_profit")
                         if ebitda is not None and operation_profit is not None:
-                            depreciation = (ebitda - operation_profit) * 1000000
+                            depreciation = (ebitda - operation_profit)
                             line_item_data[item] = depreciation
                             print(f"Calculated depreciation_and_amortization for {ticker} at {idx}: {depreciation}")
                             
@@ -849,8 +850,8 @@ def search_line_items(
                         long_debt = _safe_get(row, "long_debt")
                         if short_debt is not None or long_debt is not None:
                             total_debt = (short_debt or 0) + (long_debt or 0)
-                            line_item_data[item] = total_debt * 1000000  # Convert to actual value
-                            print(f"Calculated total_debt for {ticker} at {idx}: {total_debt * 1000000}")
+                            line_item_data[item] = total_debt
+                            print(f"Calculated total_debt for {ticker} at {idx}: {total_debt }")
                         else:
                             line_item_data[item] = None
                             print(f"Could not calculate total_debt for {ticker} at {idx} - missing debt data")
@@ -863,8 +864,6 @@ def search_line_items(
                         
                         # Get revenue
                         revenue = _safe_get(row, "revenue")
-                        if revenue is not None:
-                            revenue = revenue / 1e9  # Convert to Bn. VND
                         
                         # Calculate ratio
                         if market_cap and revenue and revenue != 0:
@@ -893,14 +892,10 @@ def search_line_items(
                             cash = _safe_get(row, "cash")
                             
                             if total_debt is not None or cash is not None:
-                                total_debt = (total_debt or 0) / 1e9  # Convert to Bn. VND
-                                cash = (cash or 0) / 1e9  # Convert to Bn. VND
                                 enterprise_value = market_cap + total_debt - cash
                         
                         # Get EBITDA
                         ebitda = _safe_get(row, "ebitda")
-                        if ebitda is not None:
-                            ebitda = ebitda / 1e9  # Convert to Bn. VND
                         
                         # Calculate ratio
                         if enterprise_value and ebitda and ebitda != 0:
@@ -915,7 +910,7 @@ def search_line_items(
                 if item == "free_cash_flow_per_share" and outstanding_shares > 0:
                     fcf = _safe_get(row, "free_cash_flow")
                     if fcf is not None:
-                        line_item_data[item] = fcf * 1000000 / outstanding_shares
+                        line_item_data[item] = fcf  / outstanding_shares
                         print(f"Calculated free_cash_flow_per_share for {ticker} at {idx}: {line_item_data[item]}")
                 
                 # Calculate inventory_turnover if needed
@@ -941,6 +936,19 @@ def search_line_items(
                     if days_receivable is not None and days_inventory is not None:
                         line_item_data[item] = days_receivable + days_inventory
                         print(f"Calculated operating_cycle for {ticker} at {idx}: {line_item_data[item]}")
+                
+                # Calculate working_capital if needed
+                if item == "working_capital":
+                    # Calculate working capital as current assets - current liabilities
+                    current_assets = _safe_get(row, "short_asset")
+                    current_liabilities = _safe_get(row, "short_debt")
+                    if current_assets is not None and current_liabilities is not None:
+                        working_capital = current_assets - current_liabilities
+                        line_item_data[item] = working_capital
+                        print(f"Calculated working_capital for {ticker} at {idx}: {working_capital}")
+                    else:
+                        line_item_data[item] = None
+                        print(f"Could not calculate working_capital for {ticker} at {idx} - missing data")
             
             # Create LineItem object
             try:

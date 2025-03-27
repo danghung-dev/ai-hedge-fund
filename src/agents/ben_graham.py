@@ -40,7 +40,7 @@ def ben_graham_agent(state: AgentState):
         metrics = get_financial_metrics(ticker, end_date, period="annual", limit=10)
 
         progress.update_status("ben_graham_agent", ticker, "Gathering financial line items")
-        period = "quarter" if USE_VNSTOCK else "annual"
+        period = "year" if USE_VNSTOCK else "annual"
         financial_line_items = search_line_items(ticker, ["earnings_per_share", "revenue", "net_income", "book_value_per_share", "total_assets", 
                                                           "total_liabilities", "current_assets", "current_liabilities", "dividends_and_other_cash_distributions", "outstanding_shares"], 
                                                           end_date, period=period, limit=10)
@@ -113,8 +113,10 @@ def analyze_earnings_stability(metrics: list, financial_line_items: list) -> dic
 
     eps_vals = []
     for item in financial_line_items:
-        if item.earnings_per_share is not None:
-            eps_vals.append(item.earnings_per_share)
+        # Safely get earnings_per_share with default of 0
+        eps = getattr(item, "earnings_per_share", 0)
+        if eps is not None:  # Only append if not None
+            eps_vals.append(eps)
 
     if len(eps_vals) < 2:
         details.append("Not enough multi-year EPS data.")
@@ -154,10 +156,12 @@ def analyze_financial_strength(metrics: list, financial_line_items: list) -> dic
         return {"score": score, "details": "No data for financial strength analysis"}
 
     latest_item = financial_line_items[-1]
-    total_assets = latest_item.total_assets or 0
-    total_liabilities = latest_item.total_liabilities or 0
-    current_assets = latest_item.current_assets or 0
-    current_liabilities = latest_item.current_liabilities or 0
+    
+    # Safely get all required attributes with default of 0
+    total_assets = getattr(latest_item, "total_assets", 0) or 0
+    total_liabilities = getattr(latest_item, "total_liabilities", 0) or 0
+    current_assets = getattr(latest_item, "current_assets", 0) or 0
+    current_liabilities = getattr(latest_item, "current_liabilities", 0) or 0
 
     # 1. Current ratio
     if current_liabilities > 0:
@@ -187,8 +191,11 @@ def analyze_financial_strength(metrics: list, financial_line_items: list) -> dic
     else:
         details.append("Cannot compute debt ratio (missing total_assets).")
 
-    # 3. Dividend track record
-    div_periods = [item.dividends_and_other_cash_distributions for item in financial_line_items if item.dividends_and_other_cash_distributions is not None]
+    # 3. Dividend track record - safely get dividends with default of None
+    div_periods = [getattr(item, "dividends_and_other_cash_distributions", None) 
+                  for item in financial_line_items]
+    div_periods = [d for d in div_periods if d is not None]  # Filter out None values
+    
     if div_periods:
         # In many data feeds, dividend outflow is shown as a negative number
         # (money going out to shareholders). We'll consider any negative as 'paid a dividend'.
@@ -219,11 +226,12 @@ def analyze_valuation_graham(metrics: list, financial_line_items: list, market_c
         return {"score": 0, "details": "Insufficient data to perform valuation"}
 
     latest = financial_line_items[-1]
-    current_assets = latest.current_assets or 0
-    total_liabilities = latest.total_liabilities or 0
-    book_value_ps = latest.book_value_per_share or 0
-    eps = latest.earnings_per_share or 0
-    shares_outstanding = latest.outstanding_shares or 0
+    # Safely get all required attributes with default of 0
+    current_assets = getattr(latest, "current_assets", 0) or 0
+    total_liabilities = getattr(latest, "total_liabilities", 0) or 0
+    book_value_ps = getattr(latest, "book_value_per_share", 0) or 0
+    eps = getattr(latest, "earnings_per_share", 0) or 0
+    shares_outstanding = getattr(latest, "outstanding_shares", 0) or 0
 
     details = []
     score = 0
