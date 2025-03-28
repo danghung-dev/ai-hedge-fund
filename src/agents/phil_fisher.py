@@ -229,7 +229,9 @@ def analyze_fisher_growth_quality(financial_line_items: list) -> dict:
         details.append("Not enough EPS data points for growth calculation.")
 
     # 3. R&D as % of Revenue (if we have R&D data)
-    rnd_values = [fi.research_and_development for fi in financial_line_items if fi.research_and_development is not None]
+    # rnd_values = [fi.research_and_development for fi in financial_line_items if fi.research_and_development is not None]
+    rnd_values = [fi.research_and_development for fi in financial_line_items 
+              if hasattr(fi, 'research_and_development') and fi.research_and_development is not None]
     if rnd_values and revenues and len(rnd_values) == len(revenues):
         # We'll just look at the most recent for a simple measure
         recent_rnd = rnd_values[0]
@@ -363,7 +365,9 @@ def analyze_management_efficiency_leverage(financial_line_items: list) -> dict:
         details.append("Insufficient data for ROE calculation")
 
     # 2. Debt-to-Equity
-    debt_values = [fi.total_debt for fi in financial_line_items if fi.total_debt is not None]
+    # debt_values = [fi.total_debt for fi in financial_line_items if fi.total_debt is not None]
+    debt_values = [fi.total_debt for fi in financial_line_items 
+          if hasattr(fi, 'total_debt') and fi.total_debt is not None]
     if debt_values and eq_values and len(debt_values) == len(eq_values):
         recent_debt = debt_values[0]
         recent_equity = eq_values[0] if eq_values[0] else 1e-9
@@ -380,7 +384,9 @@ def analyze_management_efficiency_leverage(financial_line_items: list) -> dict:
         details.append("Insufficient data for debt/equity analysis")
 
     # 3. FCF Consistency
-    fcf_values = [fi.free_cash_flow for fi in financial_line_items if fi.free_cash_flow is not None]
+    # fcf_values = [fi.free_cash_flow for fi in financial_line_items if fi.free_cash_flow is not None]
+    fcf_values = [fi.free_cash_flow for fi in financial_line_items 
+          if hasattr(fi, 'free_cash_flow') and fi.free_cash_flow is not None]
     if fcf_values and len(fcf_values) >= 2:
         # Check if FCF is positive in recent years
         positive_fcf_count = sum(1 for x in fcf_values if x and x > 0)
@@ -413,8 +419,13 @@ def analyze_fisher_valuation(financial_line_items: list, market_cap: float | Non
     raw_score = 0
 
     # Gather needed data
-    net_incomes = [fi.net_income for fi in financial_line_items if fi.net_income is not None]
-    fcf_values = [fi.free_cash_flow for fi in financial_line_items if fi.free_cash_flow is not None]
+    # net_incomes = [fi.net_income for fi in financial_line_items if fi.net_income is not None]
+    net_incomes = [fi.net_income for fi in financial_line_items 
+          if hasattr(fi, 'net_income') and fi.net_income is not None]
+
+    # fcf_values = [fi.free_cash_flow for fi in financial_line_items if fi.free_cash_flow is not None]
+    fcf_values = [fi.free_cash_flow for fi in financial_line_items 
+          if hasattr(fi, 'free_cash_flow') and fi.free_cash_flow is not None]
 
     # 1) P/E
     recent_net_income = net_incomes[0] if net_incomes else None

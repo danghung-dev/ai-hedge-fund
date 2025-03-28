@@ -8,6 +8,10 @@ import json
 from typing_extensions import Literal
 from utils.progress import progress
 from utils.llm import call_llm
+import logging
+
+# Get logger for this module
+logger = logging.getLogger('hedge_fund.bill_ackman')
 
 class BillAckmanSignal(BaseModel):
     signal: Literal["bullish", "bearish", "neutral"]

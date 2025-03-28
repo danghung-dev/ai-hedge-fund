@@ -1,5 +1,4 @@
 import sys
-
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, StateGraph
@@ -19,8 +18,9 @@ from utils.display import print_trading_output
 from utils.analysts import ANALYST_ORDER, get_analyst_nodes
 from utils.progress import progress
 from llm.models import LLM_ORDER, get_model_info
-
 import argparse
+import logging
+import os
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from tabulate import tabulate
@@ -29,6 +29,33 @@ import json
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Set up logging
+def setup_logging():
+    # Create logs directory if it doesn't exist
+    logs_dir = "logs"
+    if not os.path.exists(logs_dir):
+        os.makedirs(logs_dir)
+    
+    # Create a timestamp for the log file
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = os.path.join(logs_dir, f"hedge_fund_{timestamp}.log")
+    
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    
+    # Create a logger
+    return logging.getLogger('hedge_fund')
+
+# Initialize logger
+logger = setup_logging()
 
 init(autoreset=True)
 
@@ -118,21 +145,22 @@ def create_workflow(selected_analysts=None):
     # Default to all analysts if none selected
     if selected_analysts is None:
         selected_analysts = list(analyst_nodes.keys())
-    # Add selected analyst nodes
+    
+    # Add selected analyst nodes and connect them sequentially
+    previous_node = "start_node"
+    
     for analyst_key in selected_analysts:
         node_name, node_func = analyst_nodes[analyst_key]
         workflow.add_node(node_name, node_func)
-        workflow.add_edge("start_node", node_name)
+        workflow.add_edge(previous_node, node_name)
+        previous_node = node_name
 
     # Always add risk and portfolio management
     workflow.add_node("risk_management_agent", risk_management_agent)
     workflow.add_node("portfolio_management_agent", portfolio_management_agent)
 
-    # Connect selected analysts to risk management
-    for analyst_key in selected_analysts:
-        node_name = analyst_nodes[analyst_key][0]
-        workflow.add_edge(node_name, "risk_management_agent")
-
+    # Connect the last analyst to risk management
+    workflow.add_edge(previous_node, "risk_management_agent")
     workflow.add_edge("risk_management_agent", "portfolio_management_agent")
     workflow.add_edge("portfolio_management_agent", END)
 

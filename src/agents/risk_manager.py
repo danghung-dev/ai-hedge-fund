@@ -25,7 +25,7 @@ def risk_management_agent(state: AgentState):
             end_date=data["end_date"],
         )
 
-        if not prices:
+        if prices is None or len(prices) == 0:
             progress.update_status("risk_management_agent", ticker, "Failed: No price data found")
             continue
 

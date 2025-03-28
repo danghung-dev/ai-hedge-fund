@@ -46,3 +46,8 @@ Thumbs.db
 
 # Txt files
 *.txt
+
+node_modules/
+webui/.next
+.cache/
+logs/

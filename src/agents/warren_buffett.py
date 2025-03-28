@@ -136,7 +136,8 @@ def warren_buffett_agent(state: AgentState):
 
 def analyze_fundamentals(metrics: list) -> dict[str, any]:
     """Analyze company fundamentals based on Buffett's criteria."""
-    if not metrics:
+    # if not metrics:
+    if metrics is None or len(metrics) == 0:
         return {"score": 0, "details": "Insufficient fundamental data"}
 
     latest_metrics = metrics[0]
@@ -180,7 +181,9 @@ def analyze_fundamentals(metrics: list) -> dict[str, any]:
     else:
         reasoning.append("Current ratio data not available")
 
-    return {"score": score, "details": "; ".join(reasoning), "metrics": latest_metrics.model_dump()}
+    # Convert metrics to dict for return
+    metrics_dict = latest_metrics.model_dump()
+    return {"score": score, "details": "; ".join(reasoning), "metrics": metrics_dict}
 
 
 def analyze_consistency(financial_line_items: list) -> dict[str, any]:
@@ -192,7 +195,8 @@ def analyze_consistency(financial_line_items: list) -> dict[str, any]:
     reasoning = []
 
     # Check earnings growth trend
-    earnings_values = [item.net_income for item in financial_line_items if item.net_income]
+    earnings_values = [item.net_income for item in financial_line_items 
+                      if hasattr(item, 'net_income') and item.net_income is not None]
     if len(earnings_values) >= 4:
         # Simple check: is each period's earnings bigger than the next?
         earnings_growth = all(earnings_values[i] > earnings_values[i + 1] for i in range(len(earnings_values) - 1))
@@ -222,7 +226,7 @@ def analyze_moat(metrics: list) -> dict[str, any]:
     For simplicity, we look at stability of ROE/operating margins over multiple periods
     or high margin over the last few years. Higher stability => higher moat score.
     """
-    if not metrics or len(metrics) < 3:
+    if metrics is None or len(metrics) < 3:
         return {"score": 0, "max_score": 3, "details": "Insufficient data for moat analysis"}
 
     reasoning = []
