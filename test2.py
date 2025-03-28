@@ -5,23 +5,10 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.width', 1000)
 
 stock = Vnstock().stock(symbol='VCI', source='VCI')
-stock_head = stock.finance.ratio(period='year', lang='en', dropna=True)
 
-# Display detailed information about the DataFrame
-print("\nDetailed DataFrame Information:")
-stock_head.info()
 
-# Also print the actual data
-print("\nFirst few rows of the data:")
-print(stock_head.head())
-
-df = stock.quote.history(
-    start='2024-01-01',
-    end='2024-12-31',
-    interval='1D'
-)
-print(df.head(5))
-
+df = stock.company.news()
+print(df.info(5))
 # # Initialize the stock object with the desired symbol and source
 # stock = Vnstock().stock(symbol='VNM', source='TCBS')
 # company = stock.company

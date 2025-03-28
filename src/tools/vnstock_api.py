@@ -245,7 +245,7 @@ def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limi
             # Calculate inventory turnover
             inventory_turnover = None
             if pd.notna(income_row.get('cost_of_good_sold')) and pd.notna(balance_row.get('inventory')):
-                cogs = income_row['cost_of_good_sold']   # Convert to Bn. VND
+                cogs = -income_row['cost_of_good_sold']   # Convert to Bn. VND
                 inventory = balance_row['inventory']  # Convert to Bn. VND
                 inventory_turnover = cogs / inventory if inventory else None
             
@@ -353,6 +353,9 @@ def get_financial_metrics(ticker: str, end_date: str, period: str = "year", limi
                 book_value_per_share=_safe_get(ratio_row, 'book_value_per_share') / 1000.0 if pd.notna(_safe_get(ratio_row, 'book_value_per_share')) else None,  # Convert to thousands
                 free_cash_flow_per_share=free_cash_flow_per_share
             )
+            # modify wrong metric
+            if metrics.days_sales_outstanding < 0:
+                metrics.days_sales_outstanding = -metrics.days_sales_outstanding
             financial_metrics.append(metrics)
         
         print(f"Generated {len(financial_metrics)} financial metrics entries for {ticker}")
@@ -790,7 +793,11 @@ def search_line_items(
                         value = _safe_get(row, field)
                         if value is not None:
                             # Handle specific conversions
-                            if item in ["earnings_per_share", "book_value_per_share"]:
+                            if item == 'capital_expenditure':
+                                line_item_data[item] = value * -1
+                            elif item == 'book_value_per_share':
+                                line_item_data[item] = value / 1000
+                            elif item in ["earnings_per_share", "book_value_per_share"]:
                                 # These are already in the right units in ratio_df
                                 line_item_data[item] = value 
                             elif item in ["price_to_earnings_ratio", "price_to_book_ratio", "price_to_sales_ratio", 
@@ -1086,32 +1093,34 @@ def get_company_news(
             return filtered_data
             
     try:
-        stock = _vnstock.stock(symbol=ticker, source=VNSTOCK_SOURCE)
+        source = 'VCI'
+        stock = _vnstock.stock(symbol=ticker, source=source)
         
         # Get company news data
         df = stock.company.news()
         
-        # Convert dates to datetime for filtering
-        df['date'] = pd.to_datetime(df['date'])
+        # Convert public_date from timestamp to datetime
+        df['public_date'] = pd.to_datetime(df['public_date'], unit='ms')
         
         # Filter by date range
-        df = df[df['date'] <= end_date]
+        df = df[df['public_date'] <= end_date]
         if start_date:
-            df = df[df['date'] >= start_date]
+            df = df[df['public_date'] >= start_date]
             
         # Sort by date descending and limit results
-        df = df.sort_values('date', ascending=False).head(limit)
+        df = df.sort_values('public_date', ascending=False).head(limit)
         
         # Convert to CompanyNews objects
         news_items = []
+        
         for _, row in df.iterrows():
             news = CompanyNews(
                 ticker=ticker,
-                date=row['date'].strftime('%Y-%m-%d'),
-                title=row.get('title'),
-                content=row.get('content'),
-                source=row.get('source'),
-                url=row.get('link')
+                date=row['public_date'].strftime('%Y-%m-%d'),
+                title=row.get('news_title'),
+                content=row.get('news_short_content'),
+                # source=row.get('source'),
+                url=row.get('news_source_link')
             )
             news_items.append(news)
         
